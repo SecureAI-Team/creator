@@ -6,12 +6,15 @@
 #   docker compose logs -f web            # Follow web app logs
 #   docker compose down                   # Stop all services
 #   docker compose down -v                # Stop and remove volumes
+#
+# 国内部署: 默认使用阿里云容器镜像 (ACR) 加速，无需 VPN
+# 海外部署: docker compose build --build-arg REGISTRY=docker.io/library
 # =============================================================================
 
 services:
   # ---- PostgreSQL ----
   postgres:
-    image: postgres:16-alpine
+    image: registry.cn-hangzhou.aliyuncs.com/library/postgres:16-alpine
     container_name: creator-postgres
     restart: unless-stopped
     environment:
@@ -76,23 +79,21 @@ services:
 
   # ---- noVNC (web-based VNC client) ----
   novnc:
-    image: theasp/novnc:latest
+    build:
+      context: .
+      dockerfile: docker/novnc.Dockerfile
     container_name: creator-novnc
     restart: unless-stopped
     depends_on:
       - openclaw
     environment:
-      DISPLAY_WIDTH: 1280
-      DISPLAY_HEIGHT: 800
-      RUN_XTERM: "no"
-      NOVNC_PORT: 6080
       VNC_SERVER: openclaw:5900
     ports:
       - "127.0.0.1:6080:6080"
 
   # ---- Nginx reverse proxy ----
   nginx:
-    image: nginx:alpine
+    image: registry.cn-hangzhou.aliyuncs.com/library/nginx:alpine
     container_name: creator-nginx
     restart: unless-stopped
     depends_on:

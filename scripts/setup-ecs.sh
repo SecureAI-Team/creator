@@ -28,17 +28,20 @@ else
   echo "Docker 已安装: $(docker --version)"
 fi
 
-# ------ 2. Configure Docker Hub mirror ------
-echo "[2/5] 配置 Docker Hub 镜像加速..."
-if [ ! -f /etc/docker/daemon.json ] || ! grep -q "mirror" /etc/docker/daemon.json 2>/dev/null; then
+# ------ 2. Docker log config ------
+echo "[2/5] 配置 Docker 日志..."
+if [ ! -f /etc/docker/daemon.json ]; then
   sudo mkdir -p /etc/docker
   sudo cp "$PROJECT_DIR/docker/mirrors/daemon.json" /etc/docker/daemon.json
   sudo systemctl daemon-reload
   sudo systemctl restart docker
-  echo "Docker Hub 镜像加速已配置"
+  echo "Docker 日志配置完成"
 else
-  echo "Docker Hub 镜像加速已存在"
+  echo "Docker 配置已存在"
 fi
+echo ""
+echo "  提示: 本项目 Dockerfile 和 docker-compose.yml 已使用阿里云 ACR 镜像"
+echo "  (registry.cn-hangzhou.aliyuncs.com)，无需配置 Docker Hub mirror。"
 
 # ------ 3. Create .env file ------
 echo "[3/5] 检查环境变量配置..."

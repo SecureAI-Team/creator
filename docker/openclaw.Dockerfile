@@ -1,7 +1,12 @@
 # =============================================================================
 # OpenClaw + Playwright + Chromium + VNC
 # =============================================================================
-FROM ubuntu:24.04
+# For China/Aliyun ECS: uses ACR mirror by default (docker.io is blocked)
+# Override with: docker compose build --build-arg REGISTRY=docker.io/library
+# =============================================================================
+
+ARG REGISTRY=registry.cn-hangzhou.aliyuncs.com/library
+FROM ${REGISTRY}/ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
@@ -29,7 +34,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------- Node.js 22.x ----------
-# Use npmmirror for Node.js binary (nodesource may be slow from China)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/* && \

@@ -1,9 +1,14 @@
 # =============================================================================
 # Multi-stage Next.js standalone build
 # =============================================================================
+# For China/Aliyun ECS: uses ACR mirror by default (docker.io is blocked)
+# Override with: docker compose build --build-arg REGISTRY=docker.io/library
+# =============================================================================
+
+ARG REGISTRY=registry.cn-hangzhou.aliyuncs.com/library
 
 # ---------- Stage 1: Install dependencies ----------
-FROM node:22-alpine AS deps
+FROM ${REGISTRY}/node:22-alpine AS deps
 WORKDIR /app
 
 # Use China npm mirror for faster installs on Aliyun ECS
@@ -13,7 +18,7 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci --ignore-scripts
 
 # ---------- Stage 2: Build ----------
-FROM node:22-alpine AS builder
+FROM ${REGISTRY}/node:22-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -26,7 +31,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # ---------- Stage 3: Production runner ----------
-FROM node:22-alpine AS runner
+FROM ${REGISTRY}/node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
