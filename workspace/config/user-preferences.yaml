@@ -1,0 +1,54 @@
+# =============================================================================
+# 用户偏好设置 (User Preferences)
+# =============================================================================
+# 个人创作者的个性化配置
+# 可通过 /settings 命令交互式修改
+# =============================================================================
+
+# ---- 基本设置 ----
+timezone: "Asia/Shanghai"           # 时区，影响 Cron 任务和日报时间
+language: "zh-CN"                   # 交互语言 (zh-CN | en)
+
+# ---- 通知偏好 ----
+notifications:
+  # 通知级别: all（所有通知）| important（仅重要通知）| errors（仅错误）
+  level: all
+
+  # 免打扰时段（该时段内仅发送错误级别通知）
+  quiet_hours:
+    enabled: false
+    start: "23:00"                  # 开始时间（本地时间）
+    end: "08:00"                    # 结束时间
+
+  # 各类通知开关
+  types:
+    publish_success: true           # 发布成功通知
+    publish_failure: true           # 发布失败通知
+    auth_expiry: true               # 登录过期告警
+    daily_report: true              # 每日数据日报
+    weekly_topics: true             # 每周选题推荐
+    generation_progress: true       # 内容生成进度
+    system_health: true             # 系统健康告警
+
+# ---- 创作偏好 ----
+creation:
+  # 默认写作风格描述（提示词构造时引用）
+  default_style: "专业但通俗易懂"
+  # 默认目标受众
+  default_audience: "对该领域感兴趣的普通读者"
+  # 默认文章字数
+  default_word_count: 2000
+  # 默认视频时长（分钟）
+  default_video_duration: 5
+  # 发布前是否总是要求确认（安全起见建议保持 true）
+  always_confirm_before_publish: true
+
+# ---- 数据偏好 ----
+data:
+  # 数据缓存有效时间（小时），超过则触发实时拉取
+  cache_ttl_hours: 4
+  # 日报发送时间（本地时间）
+  daily_report_time: "09:00"
+  # 每周选题推荐时间（周几 + 时间）
+  weekly_topic_day: "monday"
+  weekly_topic_time: "08:00"

@@ -1,0 +1,50 @@
+# 内容创作流水线
+# 使用 /prose run workspace/workflows/content-pipeline.prose 执行
+
+input topic: "要创作的主题"
+input content_type: "内容类型 (text/video/audio)"
+input platforms: "目标发布平台"
+
+agent researcher:
+  model: qwen-max
+  prompt: "你是自媒体内容研究员。擅长分析热点、竞品和受众需求。"
+
+agent creator:
+  model: qwen-max
+  prompt: "你是资深自媒体创作者。擅长创作高互动率的原创内容。"
+
+agent adapter:
+  model: qwen-turbo
+  prompt: "你擅长将内容适配到不同自媒体平台的格式和字数要求。"
+
+# Phase 1: 并行研究和初稿
+parallel:
+  research = session: researcher
+    prompt: |
+      研究主题「{topic}」：
+      1. 各平台上该话题的热门内容特点
+      2. 竞品分析：同类创作者如何处理这个话题
+      3. 受众兴趣点和痛点
+      4. 推荐切入角度
+
+  first_draft = session: creator
+    prompt: |
+      围绕「{topic}」创作一篇原创{content_type}内容。
+      要求：观点独到、结构清晰、有吸引力的开头。
+
+# Phase 2: 结合研究优化
+optimized = session: creator
+  prompt: |
+    结合研究数据优化初稿：
+    - 融入热门关键词提升搜索权重
+    - 调整内容结构提升完读率
+    - 添加互动引导（提问、投票等）
+  context: { research, first_draft }
+
+# Phase 3: 多平台适配
+adapted = session: adapter
+  prompt: |
+    将以下内容适配到这些平台: {platforms}
+    各平台的标题、正文、标签分别输出。
+    注意各平台的字数限制和内容风格差异。
+  context: { optimized }

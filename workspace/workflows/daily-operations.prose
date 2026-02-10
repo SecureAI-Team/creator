@@ -1,0 +1,36 @@
+# 每日运营流水线
+# 使用 /prose run workspace/workflows/daily-operations.prose 执行
+# 也可通过 Cron Job 自动触发
+
+agent monitor:
+  model: qwen-turbo
+  prompt: "你负责监控各平台热搜热点。"
+
+agent collector:
+  model: qwen-turbo
+  prompt: "你负责收集各自媒体平台的创作者数据。"
+
+agent analyst:
+  model: qwen-max
+  prompt: "你是资深自媒体运营数据分析师。擅长从数据中发现趋势和机会。"
+
+# Phase 1: 并行执行三个任务
+parallel:
+  trending = session: monitor
+    prompt: "抓取今天各平台的热搜榜和热点话题，分析与创作者领域的相关性。"
+
+  platform_data = session: collector
+    prompt: "拉取所有已登录平台的最新创作者数据，包括粉丝、互动、播放等。"
+
+  comments = session: collector
+    prompt: "检查所有平台的最新评论，特别关注提问和负面反馈。"
+
+# Phase 2: 综合分析
+report = session: analyst
+  prompt: |
+    基于以下数据生成今日运营报告：
+    1. 数据趋势分析和关键变化
+    2. 热点话题中的选题机会
+    3. 需要回复的重要评论
+    4. 今日行动建议（具体可执行）
+  context: { trending, platform_data, comments }

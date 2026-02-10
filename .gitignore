@@ -1,0 +1,67 @@
+# =============================================================================
+# 自媒体创作助手 .gitignore
+# =============================================================================
+
+# ---- 环境变量 & 密钥 ----
+.env
+.env.local
+.env.production
+*.env
+~/.env.creator
+!.env.example
+
+# ---- 运行时数据（不进版本控制，按需备份）----
+workspace/auth/*
+!workspace/auth/.gitkeep
+
+workspace/content/media/*
+!workspace/content/media/.gitkeep
+
+workspace/content/drafts/*
+!workspace/content/drafts/.gitkeep
+
+workspace/content/adapted/*
+!workspace/content/adapted/.gitkeep
+
+workspace/content/published/*
+!workspace/content/published/.gitkeep
+
+workspace/data/*
+!workspace/data/.gitkeep
+
+workspace/topics/*
+!workspace/topics/.gitkeep
+
+# ---- OpenProse 运行时状态 ----
+.prose/
+
+# ---- 截图（运行时生成）----
+workspace/content/screenshots/*
+!workspace/content/screenshots/.gitkeep
+
+# ---- 日志 ----
+*.log
+logs/
+
+# ---- Node.js ----
+node_modules/
+package-lock.json
+
+# ---- OpenClaw 运行时 ----
+.openclaw/
+
+# ---- 浏览器数据 ----
+browser-profiles/
+chromium-data/
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

@@ -1,0 +1,105 @@
+{
+  "env": {
+    "DASHSCOPE_API_KEY": "${DASHSCOPE_API_KEY}",
+    "YOUTUBE_API_KEY": "${YOUTUBE_API_KEY}"
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "dashscope/qwen-max"
+      },
+      "subagents": {
+        "model": "dashscope/qwen-turbo",
+        "maxConcurrent": 4,
+        "archiveAfterMinutes": 60
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "dashscope": {
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "apiKey": "${DASHSCOPE_API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          { "id": "qwen-max", "name": "通义千问 Max" },
+          { "id": "qwen-plus", "name": "通义千问 Plus" },
+          { "id": "qwen-turbo", "name": "通义千问 Turbo" }
+        ]
+      }
+    }
+  },
+  "browser": {
+    "enabled": true,
+    "headless": true,
+    "defaultProfile": "bilibili",
+    "maxInstances": 4,
+    "idleShutdownMinutes": 10,
+    "timeout": 30000,
+    "navigationTimeout": 60000,
+    "screenshotDir": "workspace/content/screenshots",
+    "profiles": {
+      "bilibili": { "cdpPort": 18800, "color": "#00A1D6" },
+      "xiaohongshu": { "cdpPort": 18801, "color": "#FE2C55" },
+      "weixin-mp": { "cdpPort": 18802, "color": "#07C160" },
+      "weixin-channels": { "cdpPort": 18803, "color": "#07C160" },
+      "douyin": { "cdpPort": 18804, "color": "#000000" },
+      "youtube": { "cdpPort": 18805, "color": "#FF0000" },
+      "kuaishou": { "cdpPort": 18806, "color": "#FF4906" },
+      "zhihu": { "cdpPort": 18807, "color": "#0066FF" },
+      "weibo": { "cdpPort": 18808, "color": "#E6162D" },
+      "toutiao": { "cdpPort": 18809, "color": "#F85959" },
+      "chatgpt": { "cdpPort": 18810, "color": "#10A37F" },
+      "claude": { "cdpPort": 18823, "color": "#D97706" },
+      "deepseek": { "cdpPort": 18824, "color": "#4F46E5" },
+      "gemini": { "cdpPort": 18825, "color": "#8E44AD" },
+      "kimi": { "cdpPort": 18826, "color": "#6366F1" },
+      "qwen-web": { "cdpPort": 18827, "color": "#6F42FF" },
+      "notebooklm": { "cdpPort": 18811, "color": "#4285F4" },
+      "midjourney": { "cdpPort": 18812, "color": "#5865F2" },
+      "tongyi-wanxiang": { "cdpPort": 18813, "color": "#6F42FF" },
+      "kling": { "cdpPort": 18814, "color": "#FF6A00" },
+      "jimeng": { "cdpPort": 18815, "color": "#1A1A1A" },
+      "sora": { "cdpPort": 18816, "color": "#10A37F" },
+      "runway": { "cdpPort": 18817, "color": "#FFFFFF" },
+      "suno": { "cdpPort": 18818, "color": "#EC4899" },
+      "elevenlabs": { "cdpPort": 18819, "color": "#1A1A2E" },
+      "fishaudio": { "cdpPort": 18820, "color": "#00B8D4" },
+      "heygen": { "cdpPort": 18821, "color": "#7C3AED" },
+      "chanjing": { "cdpPort": 18822, "color": "#FF6B35" }
+    }
+  },
+  "cron": {
+    "enabled": true
+  },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "session-memory": { "enabled": true },
+        "command-logger": { "enabled": true },
+        "auth-health-check": { "enabled": true },
+        "publish-log": { "enabled": true },
+        "content-log": { "enabled": true },
+        "trending-monitor": { "enabled": true }
+      }
+    }
+  },
+  "plugins": {
+    "open-prose": {
+      "enabled": false,
+      "comment": "启用后可使用 /prose 命令运行 .prose 工作流文件"
+    }
+  },
+  "skills": {
+    "load": {
+      "watch": true,
+      "watchDebounceMs": 250
+    }
+  },
+  "commands": {
+    "text": true,
+    "native": "auto",
+    "nativeSkills": "auto"
+  }
+}

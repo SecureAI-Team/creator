@@ -1,0 +1,170 @@
+# =============================================================================
+# 发布平台注册表 (Platform Registry)
+# =============================================================================
+# 每个平台 = 一个 Browser Profile + 发布 Skill + 数据 Skill
+#
+# 字段说明：
+#   name:          显示名称
+#   url:           创作者后台入口 URL
+#   profile:       Browser Profile 名（对应 openclaw.json 中的 browser.profiles）
+#   publish_skill: 发布 RPA Skill 名
+#   data_skill:    数据拉取 Skill 名
+#   content_types: 支持的内容类型 [text, video, audio, image]
+#   limits:        平台限制
+#   auth_check:    登录态检查
+#
+# 注意：CDP 端口和颜色由 openclaw.json browser.profiles 统一管理，此处不重复定义
+# =============================================================================
+
+platforms:
+
+  bilibili:
+    name: "哔哩哔哩"
+    url: "https://member.bilibili.com/platform/upload/video/frame"
+    profile: "bilibili"
+    publish_skill: "publish-bilibili"
+    data_skill: "data-bilibili"
+    content_types: [video, text]
+    limits:
+      title_max: 80
+      description_max: 2000
+      tags_max: 12
+    auth_check:
+      strategy: snapshot
+      indicator: "登录"
+
+  xiaohongshu:
+    name: "小红书"
+    url: "https://creator.xiaohongshu.com/publish/publish"
+    profile: "xiaohongshu"
+    publish_skill: "publish-xiaohongshu"
+    data_skill: "data-xiaohongshu"
+    content_types: [text, video, image]
+    limits:
+      title_max: 20
+      content_max: 1000
+      tags_max: 10
+    auth_check:
+      strategy: snapshot
+      indicator: "登录"
+
+  weixin-mp:
+    name: "微信公众号"
+    url: "https://mp.weixin.qq.com"
+    profile: "weixin-mp"
+    publish_skill: "publish-weixin-mp"
+    data_skill: "data-weixin-mp"
+    content_types: [text, image]
+    limits:
+      title_max: 64
+      content_max: 20000
+    auth_check:
+      strategy: snapshot
+      indicator: "扫码登录"
+
+  weixin-channels:
+    name: "微信视频号"
+    url: "https://channels.weixin.qq.com/platform"
+    profile: "weixin-channels"
+    publish_skill: "publish-weixin-channels"
+    data_skill: "data-weixin-channels"
+    content_types: [video]
+    limits:
+      title_max: 30
+      description_max: 1000
+    auth_check:
+      strategy: snapshot
+      indicator: "扫码登录"
+
+  douyin:
+    name: "抖音"
+    url: "https://creator.douyin.com/creator-micro/content/upload"
+    profile: "douyin"
+    publish_skill: "publish-douyin"
+    data_skill: "data-douyin"
+    content_types: [video]
+    limits:
+      title_max: 55
+      description_max: 4000
+      tags_max: 5
+    auth_check:
+      strategy: snapshot
+      indicator: "登录"
+
+  youtube:
+    name: "YouTube"
+    url: "https://studio.youtube.com"
+    profile: "youtube"
+    publish_skill: "publish-youtube"
+    data_skill: "data-youtube"
+    content_types: [video]
+    limits:
+      title_max: 100
+      description_max: 5000
+      tags_max: 500
+    auth_check:
+      strategy: snapshot
+      indicator: "Sign in"
+
+  # ==========================================================================
+  # 扩展平台（Phase 1）
+  # ==========================================================================
+
+  kuaishou:
+    name: "快手"
+    url: "https://cp.kuaishou.com"
+    profile: "kuaishou"
+    publish_skill: "publish-kuaishou"
+    data_skill: "data-kuaishou"
+    content_types: [video]
+    limits:
+      title_max: 50
+      description_max: 500
+      tags_max: 10
+    auth_check:
+      strategy: snapshot
+      indicator: "登录"
+
+  zhihu:
+    name: "知乎"
+    url: "https://www.zhihu.com/creator"
+    profile: "zhihu"
+    publish_skill: "publish-zhihu"
+    data_skill: "data-zhihu"
+    content_types: [text, video]
+    limits:
+      title_max: 100
+      content_max: 100000
+      tags_max: 5
+    auth_check:
+      strategy: snapshot
+      indicator: "登录"
+
+  weibo:
+    name: "微博"
+    url: "https://weibo.com"
+    profile: "weibo"
+    publish_skill: "publish-weibo"
+    data_skill: "data-weibo"
+    content_types: [text, image, video]
+    limits:
+      content_max: 2000
+      images_max: 9
+    auth_check:
+      strategy: snapshot
+      indicator: "登录"
+
+  toutiao:
+    name: "今日头条/头条号"
+    url: "https://mp.toutiao.com"
+    profile: "toutiao"
+    publish_skill: "publish-toutiao"
+    data_skill: "data-toutiao"
+    content_types: [text, video]
+    limits:
+      title_max: 30
+      content_max: 50000
+      tags_max: 10
+    auth_check:
+      strategy: snapshot
+      indicator: "登录"

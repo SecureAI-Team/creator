@@ -1,0 +1,20 @@
+{
+  "name": "creator-assistant",
+  "version": "1.0.0",
+  "description": "基于 OpenClaw 框架的个人自媒体创作助手",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint:json": "node scripts/ci/validate-json.mjs",
+    "lint:structure": "node scripts/ci/check-structure.mjs",
+    "ci": "npm run typecheck && npm run lint:json && npm run lint:structure"
+  },
+  "devDependencies": {
+    "typescript": "^5.7",
+    "@types/node": "^22"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
