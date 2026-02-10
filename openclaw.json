@@ -31,7 +31,7 @@
   },
   "browser": {
     "enabled": true,
-    "headless": true,
+    "headless": false,
     "defaultProfile": "bilibili",
     "maxInstances": 4,
     "idleShutdownMinutes": 10,

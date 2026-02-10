@@ -61,7 +61,16 @@ COPY docker/entrypoint-openclaw.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ---------- Create runtime directories ----------
-RUN mkdir -p /data/users /home/creator/.vnc /var/log/supervisor && \
+RUN mkdir -p /data/users /home/creator/.vnc /var/log/supervisor \
+    /home/creator/app/workspace/auth \
+    /home/creator/app/workspace/content/drafts \
+    /home/creator/app/workspace/content/adapted \
+    /home/creator/app/workspace/content/media \
+    /home/creator/app/workspace/content/published \
+    /home/creator/app/workspace/content/screenshots \
+    /home/creator/app/workspace/data \
+    /home/creator/app/workspace/topics \
+    /home/creator/app/browser-profiles && \
     chown -R creator:creator /home/creator /data/users
 
 # ---------- Supervisor config ----------

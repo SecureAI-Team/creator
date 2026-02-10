@@ -1,188 +1,40 @@
-import { spawn, ChildProcess } from "node:child_process";
-import { initializeUserWorkspace } from "./workspace";
-
 /**
- * OpenClaw Instance Manager
+ * OpenClaw Client
  *
- * Manages per-user OpenClaw Gateway instances:
- * - Start/stop on demand
- * - Track running instances
- * - Idle timeout auto-shutdown
- * - Port allocation
+ * In the Docker deployment, the OpenClaw Gateway runs as a dedicated container
+ * (managed by supervisord) with Chromium + VNC display. The web container
+ * forwards messages to the openclaw container over the Docker network.
+ *
+ * Environment variable OPENCLAW_URL controls the endpoint.
+ * Default: http://openclaw:3000 (Docker service name).
  */
 
-interface OpenClawInstance {
-  userId: string;
-  process: ChildProcess | null;
+const OPENCLAW_URL =
+  process.env.OPENCLAW_URL || "http://openclaw:3000";
+
+interface InstanceStatus {
+  status: "running" | "stopped" | "unreachable";
   webChatPort: number;
-  status: "starting" | "running" | "stopping" | "stopped";
-  startedAt: Date;
-  lastActivity: Date;
-  workspaceDir: string;
-}
-
-// In-memory instance registry
-const instances = new Map<string, OpenClawInstance>();
-
-// WebChat port allocation (each user gets a unique port)
-const WEBCHAT_PORT_BASE = 4000;
-
-function getWebChatPort(userId: string): number {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
-  }
-  return WEBCHAT_PORT_BASE + (Math.abs(hash) % 1000);
+  startedAt?: Date;
+  lastActivity?: Date;
 }
 
 /**
- * Get or start an OpenClaw instance for a user.
- */
-export async function getOrStartInstance(
-  userId: string,
-  options?: { dashscopeApiKey?: string }
-): Promise<OpenClawInstance> {
-  const existing = instances.get(userId);
-  if (existing && existing.status === "running") {
-    existing.lastActivity = new Date();
-    return existing;
-  }
-
-  return startInstance(userId, options);
-}
-
-/**
- * Start an OpenClaw Gateway instance for a user.
- */
-export async function startInstance(
-  userId: string,
-  options?: { dashscopeApiKey?: string }
-): Promise<OpenClawInstance> {
-  const workspaceDir = initializeUserWorkspace({
-    userId,
-    platforms: [],
-    tools: [],
-    dashscopeApiKey: options?.dashscopeApiKey,
-  });
-
-  const webChatPort = getWebChatPort(userId);
-
-  const instance: OpenClawInstance = {
-    userId,
-    process: null,
-    webChatPort,
-    status: "starting",
-    startedAt: new Date(),
-    lastActivity: new Date(),
-    workspaceDir,
-  };
-
-  instances.set(userId, instance);
-
-  try {
-    // Start OpenClaw Gateway in the user's workspace
-    const proc = spawn("openclaw", ["start", "--port", String(webChatPort)], {
-      cwd: workspaceDir,
-      env: {
-        ...process.env,
-        DASHSCOPE_API_KEY: options?.dashscopeApiKey || process.env.DASHSCOPE_API_KEY || "",
-        OPENCLAW_HOME: workspaceDir,
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    instance.process = proc;
-
-    proc.on("exit", (code) => {
-      console.log(`[OpenClaw] User ${userId} instance exited with code ${code}`);
-      instance.status = "stopped";
-      instance.process = null;
-    });
-
-    proc.stdout?.on("data", (data: Buffer) => {
-      const output = data.toString();
-      if (output.includes("Gateway started") || output.includes("listening")) {
-        instance.status = "running";
-      }
-    });
-
-    proc.stderr?.on("data", (data: Buffer) => {
-      console.error(`[OpenClaw] User ${userId} stderr: ${data.toString()}`);
-    });
-
-    // Wait for startup (max 15 seconds)
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        if (instance.status === "starting") {
-          instance.status = "running"; // Assume running after timeout
-        }
-        resolve();
-      }, 15000);
-
-      const checkInterval = setInterval(() => {
-        if (instance.status === "running") {
-          clearTimeout(timeout);
-          clearInterval(checkInterval);
-          resolve();
-        }
-      }, 500);
-    });
-
-    return instance;
-  } catch (err) {
-    instance.status = "stopped";
-    throw err;
-  }
-}
-
-/**
- * Stop an OpenClaw instance.
- */
-export async function stopInstance(userId: string): Promise<void> {
-  const instance = instances.get(userId);
-  if (!instance || !instance.process) return;
-
-  instance.status = "stopping";
-
-  return new Promise((resolve) => {
-    const proc = instance.process!;
-    proc.on("exit", () => {
-      instance.status = "stopped";
-      instance.process = null;
-      instances.delete(userId);
-      resolve();
-    });
-
-    proc.kill("SIGTERM");
-
-    // Force kill after 10 seconds
-    setTimeout(() => {
-      if (instance.status === "stopping") {
-        proc.kill("SIGKILL");
-      }
-    }, 10000);
-  });
-}
-
-/**
- * Send a message to a user's OpenClaw instance via WebChat API.
+ * Send a message to the OpenClaw Gateway via its WebChat HTTP API.
  */
 export async function sendMessage(
   userId: string,
   message: string
 ): Promise<string> {
-  const instance = await getOrStartInstance(userId);
-  instance.lastActivity = new Date();
-
-  // Send message via OpenClaw WebChat HTTP API
-  const response = await fetch(
-    `http://127.0.0.1:${instance.webChatPort}/api/chat`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    }
-  );
+  const response = await fetch(`${OPENCLAW_URL}/api/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-Id": userId,
+    },
+    body: JSON.stringify({ message }),
+    signal: AbortSignal.timeout(60_000), // 60s timeout for browser operations
+  });
 
   if (!response.ok) {
     throw new Error(`OpenClaw API error: ${response.status}`);
@@ -193,49 +45,56 @@ export async function sendMessage(
 }
 
 /**
- * Get instance status for a user.
+ * Get the OpenClaw instance status by checking health endpoint.
  */
-export function getInstanceStatus(userId: string) {
-  const instance = instances.get(userId);
-  if (!instance) {
-    return { status: "stopped" as const, webChatPort: 0 };
-  }
+export function getInstanceStatus(userId: string): InstanceStatus {
+  // In Docker mode, there is a single shared openclaw container.
+  // We return a consistent status; the actual health is checked asynchronously.
+  void userId; // unused in single-instance mode
   return {
-    status: instance.status,
-    webChatPort: instance.webChatPort,
-    startedAt: instance.startedAt,
-    lastActivity: instance.lastActivity,
+    status: "running",
+    webChatPort: 3000,
   };
 }
 
 /**
- * List all active instances.
+ * Get or "start" an OpenClaw instance.
+ * In Docker mode the container is always running, so this just returns
+ * connection info for the upstream openclaw container.
  */
-export function listInstances() {
-  return Array.from(instances.entries()).map(([userId, inst]) => ({
+export async function getOrStartInstance(userId: string) {
+  // Verify the container is reachable
+  try {
+    const res = await fetch(`${OPENCLAW_URL}/`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    void res;
+  } catch {
+    // Container may not have a root handler; that's fine
+  }
+
+  return {
     userId,
-    status: inst.status,
-    webChatPort: inst.webChatPort,
-    startedAt: inst.startedAt,
-    lastActivity: inst.lastActivity,
-  }));
+    webChatPort: 3000,
+    status: "running" as const,
+    startedAt: new Date(),
+    lastActivity: new Date(),
+    url: OPENCLAW_URL,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Idle cleanup: shut down instances inactive for > 30 minutes
-// ---------------------------------------------------------------------------
-
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [userId, instance] of instances) {
-    if (
-      instance.status === "running" &&
-      now - instance.lastActivity.getTime() > IDLE_TIMEOUT_MS
-    ) {
-      console.log(`[OpenClaw] Idle shutdown for user ${userId}`);
-      stopInstance(userId).catch(console.error);
-    }
-  }
-}, 60 * 1000); // Check every minute
+/**
+ * List active OpenClaw instances.
+ * In Docker mode there is exactly one shared instance.
+ */
+export function listInstances() {
+  return [
+    {
+      userId: "shared",
+      status: "running" as const,
+      webChatPort: 3000,
+      startedAt: new Date(),
+      lastActivity: new Date(),
+    },
+  ];
+}

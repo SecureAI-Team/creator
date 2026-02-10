@@ -1,12 +1,14 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { getOrStartInstance } from "@/lib/openclaw";
 
 /**
  * Agent Streaming API (Server-Sent Events)
  *
  * GET /api/agent/stream?message=... - Stream response from OpenClaw
  */
+
+const OPENCLAW_URL =
+  process.env.OPENCLAW_URL || "http://openclaw:3000";
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -19,17 +21,16 @@ export async function GET(request: NextRequest) {
     return new Response("Missing message parameter", { status: 400 });
   }
 
-  const userId = session.user.id;
-
   try {
-    const instance = await getOrStartInstance(userId);
-
     // Proxy SSE from OpenClaw WebChat API
     const upstreamResponse = await fetch(
-      `http://127.0.0.1:${instance.webChatPort}/api/chat/stream`,
+      `${OPENCLAW_URL}/api/chat/stream`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Id": session.user.id,
+        },
         body: JSON.stringify({ message }),
       }
     );

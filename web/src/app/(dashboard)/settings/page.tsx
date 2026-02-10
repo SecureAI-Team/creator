@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import {
   User, Globe, Key, MessageCircle, Bot, Shield, Loader2, Check, Copy,
 } from "lucide-react";
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -155,8 +155,8 @@ export default function SettingsPage() {
 
   /* WeChat bind */
   const handleWeChatBind = () => {
-    // Redirect to NextAuth WeChat OAuth flow
-    window.location.href = "/api/auth/signin/wechat?callbackUrl=/settings";
+    // Trigger NextAuth WeChat OAuth flow via signIn()
+    signIn("wechat", { callbackUrl: "/settings" });
   };
 
   const handleWeChatUnbind = async () => {

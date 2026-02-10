@@ -18,7 +18,7 @@ function VNCContent() {
       ? `工具登录: ${tool}`
       : "远程浏览器";
 
-  const vncUrl = `/vnc-proxy/vnc.html?autoconnect=true&resize=scale&quality=6&target=${encodeURIComponent(target)}`;
+  const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&quality=6&target=${encodeURIComponent(target)}`;
 
   return (
     <div
