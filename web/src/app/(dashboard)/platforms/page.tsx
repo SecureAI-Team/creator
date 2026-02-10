@@ -1,22 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ExternalLink, RefreshCw, MonitorPlay, Loader2 } from "lucide-react";
 
 const PLATFORMS = [
-  { key: "bilibili", name: "哔哩哔哩", color: "#00A1D6", url: "https://member.bilibili.com", types: ["视频", "图文"] },
-  { key: "douyin", name: "抖音", color: "#000000", url: "https://creator.douyin.com", types: ["短视频"] },
-  { key: "xiaohongshu", name: "小红书", color: "#FE2C55", url: "https://creator.xiaohongshu.com", types: ["图文", "视频"] },
-  { key: "youtube", name: "YouTube", color: "#FF0000", url: "https://studio.youtube.com", types: ["视频"] },
-  { key: "weixin-mp", name: "微信公众号", color: "#07C160", url: "https://mp.weixin.qq.com", types: ["图文"] },
-  { key: "weixin-channels", name: "微信视频号", color: "#07C160", url: "https://channels.weixin.qq.com", types: ["视频"] },
-  { key: "kuaishou", name: "快手", color: "#FF4906", url: "https://cp.kuaishou.com", types: ["短视频"] },
-  { key: "zhihu", name: "知乎", color: "#0066FF", url: "https://www.zhihu.com/creator", types: ["图文", "视频"] },
-  { key: "weibo", name: "微博", color: "#E6162D", url: "https://weibo.com", types: ["图文", "视频"] },
-  { key: "toutiao", name: "头条号", color: "#F85959", url: "https://mp.toutiao.com", types: ["图文", "视频"] },
+  { key: "bilibili", name: "哔哩哔哩", initial: "B", color: "from-[#00A1D6] to-[#0091c2]", url: "https://member.bilibili.com", types: ["视频", "图文"] },
+  { key: "douyin", name: "抖音", initial: "抖", color: "from-[#1a1a1a] to-[#333333]", url: "https://creator.douyin.com", types: ["短视频"] },
+  { key: "xiaohongshu", name: "小红书", initial: "小", color: "from-[#FE2C55] to-[#e0264c]", url: "https://creator.xiaohongshu.com", types: ["图文", "视频"] },
+  { key: "youtube", name: "YouTube", initial: "Y", color: "from-[#FF0000] to-[#cc0000]", url: "https://studio.youtube.com", types: ["视频"] },
+  { key: "weixin-mp", name: "微信公众号", initial: "公", color: "from-[#07C160] to-[#06a050]", url: "https://mp.weixin.qq.com", types: ["图文"] },
+  { key: "weixin-channels", name: "微信视频号", initial: "视", color: "from-[#07C160] to-[#06a050]", url: "https://channels.weixin.qq.com", types: ["视频"] },
+  { key: "kuaishou", name: "快手", initial: "快", color: "from-[#FF4906] to-[#e04105]", url: "https://cp.kuaishou.com", types: ["短视频"] },
+  { key: "zhihu", name: "知乎", initial: "知", color: "from-[#0066FF] to-[#0055dd]", url: "https://www.zhihu.com/creator", types: ["图文", "视频"] },
+  { key: "weibo", name: "微博", initial: "微", color: "from-[#E6162D] to-[#cc1326]", url: "https://weibo.com", types: ["图文", "视频"] },
+  { key: "toutiao", name: "头条号", initial: "头", color: "from-[#F85959] to-[#e04e4e]", url: "https://mp.toutiao.com", types: ["图文", "视频"] },
 ];
 
 type ConnectionStatus = "CONNECTED" | "EXPIRED" | "DISCONNECTED";
@@ -26,10 +24,10 @@ interface PlatformState {
   lastChecked?: string;
 }
 
-const statusConfig: Record<string, { label: string; className: string }> = {
-  CONNECTED: { label: "已连接", className: "bg-green-100 text-green-700" },
-  EXPIRED: { label: "已过期", className: "bg-yellow-100 text-yellow-700" },
-  DISCONNECTED: { label: "未连接", className: "bg-gray-100 text-gray-500" },
+const statusConfig: Record<string, { label: string; dot: string; bg: string; text: string }> = {
+  CONNECTED: { label: "已连接", dot: "bg-emerald-500", bg: "bg-emerald-50", text: "text-emerald-700" },
+  EXPIRED: { label: "已过期", dot: "bg-amber-500", bg: "bg-amber-50", text: "text-amber-700" },
+  DISCONNECTED: { label: "未连接", dot: "bg-gray-300", bg: "bg-gray-100", text: "text-gray-500" },
 };
 
 export default function PlatformsPage() {
@@ -86,10 +84,7 @@ export default function PlatformsPage() {
       const data = await res.json();
       setConnections((prev) => ({
         ...prev,
-        [key]: {
-          status: data.status,
-          lastChecked: data.lastChecked,
-        },
+        [key]: { status: data.status, lastChecked: data.lastChecked },
       }));
     } catch {
       // ignore
@@ -100,7 +95,7 @@ export default function PlatformsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <Loader2 className="h-8 w-8 animate-spin text-gray-300" />
       </div>
     );
   }
@@ -108,8 +103,8 @@ export default function PlatformsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">平台管理</h1>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-2xl font-bold text-gray-900">平台管理</h1>
+        <p className="text-gray-500 text-sm mt-1">
           管理你的内容平台连接。点击「登录」通过远程浏览器完成平台认证。
         </p>
       </div>
@@ -119,67 +114,85 @@ export default function PlatformsPage() {
           const state = getStatus(platform.key);
           const sc = statusConfig[state.status] || statusConfig.DISCONNECTED;
           return (
-            <Card key={platform.key} className="hover:shadow-md transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                      style={{ backgroundColor: platform.color }}
-                    >
-                      {platform.name[0]}
+            <div
+              key={platform.key}
+              className="rounded-2xl border border-gray-100 bg-white p-5 transition-all hover:shadow-md hover:shadow-gray-100/80"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`h-11 w-11 rounded-xl bg-gradient-to-br ${platform.color} flex items-center justify-center text-white font-bold text-sm shadow-sm`}
+                  >
+                    {platform.initial}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-gray-900">
+                      {platform.name}
                     </div>
-                    <div>
-                      <CardTitle className="text-base">{platform.name}</CardTitle>
-                      <CardDescription className="text-xs">
-                        {platform.types.join(" / ")}
-                      </CardDescription>
+                    <div className="text-xs text-gray-400">
+                      {platform.types.join(" / ")}
                     </div>
                   </div>
-                  <Badge className={sc.className} variant="secondary">
-                    {sc.label}
-                  </Badge>
                 </div>
-              </CardHeader>
-              <CardContent>
-                {state.lastChecked && (
-                  <p className="text-xs text-muted-foreground mb-3">
-                    上次检查: {new Date(state.lastChecked).toLocaleString("zh-CN")}
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  {state.status === "CONNECTED" ? (
-                    <>
+                <span
+                  className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                  {sc.label}
+                </span>
+              </div>
+
+              {state.lastChecked && (
+                <p className="text-xs text-gray-400 mb-3">
+                  上次检查:{" "}
+                  {new Date(state.lastChecked).toLocaleString("zh-CN")}
+                </p>
+              )}
+
+              <div className="flex gap-2">
+                {state.status === "CONNECTED" ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50"
+                      onClick={() => handleCheck(platform.key)}
+                      disabled={checkLoading === platform.key}
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 mr-1.5 ${
+                          checkLoading === platform.key ? "animate-spin" : ""
+                        }`}
+                      />
+                      检查
+                    </Button>
+                    <a
+                      href={platform.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <Button
                         variant="outline"
                         size="sm"
-                        className="flex-1"
-                        onClick={() => handleCheck(platform.key)}
-                        disabled={checkLoading === platform.key}
+                        className="rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50"
                       >
-                        <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${checkLoading === platform.key ? "animate-spin" : ""}`} />
-                        检查
+                        <ExternalLink className="h-3.5 w-3.5" />
                       </Button>
-                      <a href={platform.url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="outline" size="sm">
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
-                      </a>
-                    </>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => handleLogin(platform.key)}
-                      disabled={loginLoading === platform.key}
-                    >
-                      <MonitorPlay className="h-3.5 w-3.5 mr-1.5" />
-                      {loginLoading === platform.key ? "正在打开..." : "登录"}
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                    </a>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
+                    onClick={() => handleLogin(platform.key)}
+                    disabled={loginLoading === platform.key}
+                  >
+                    <MonitorPlay className="h-3.5 w-3.5 mr-1.5" />
+                    {loginLoading === platform.key ? "正在打开..." : "登录"}
+                  </Button>
+                )}
+              </div>
+            </div>
           );
         })}
       </div>

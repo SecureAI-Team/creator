@@ -1,104 +1,177 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Save, Key, Bell, User, Bot, Loader2, Copy, Check } from "lucide-react";
+import {
+  User, Globe, Key, MessageCircle, Bot, Shield, Loader2, Check, Copy, ExternalLink,
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface UserPreferences {
+  language: string;
+  timezone: string;
+  defaultPlatforms: string[];
+  publishMode: string;
+  notifyVia: string[];
+}
+
+interface TelegramState {
+  bound: boolean;
+  telegramUsername?: string;
+  bindCode?: string;
+  instruction?: string;
+}
+
+interface WeChatState {
+  bound: boolean;
+  providerAccountId?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section wrapper                                                    */
+/* ------------------------------------------------------------------ */
+
+function Section({
+  icon: Icon,
+  iconBg,
+  iconColor,
+  title,
+  description,
+  children,
+}: {
+  icon: typeof User;
+  iconBg: string;
+  iconColor: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-50 bg-gray-50/30">
+        <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${iconBg}`}>
+          <Icon className={`h-4 w-4 ${iconColor}`} />
+        </div>
+        <div>
+          <h3 className="font-semibold text-gray-900 text-sm">{title}</h3>
+          <p className="text-xs text-gray-400">{description}</p>
+        </div>
+      </div>
+      <div className="p-6">{children}</div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Settings Page                                                      */
+/* ------------------------------------------------------------------ */
 
 export default function SettingsPage() {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [timezone, setTimezone] = useState("Asia/Shanghai");
-  const [notificationLevel, setNotificationLevel] = useState("important");
-  const [dashscopeKey, setDashscopeKey] = useState("");
-  const [telegramBound, setTelegramBound] = useState(false);
-  const [telegramUsername, setTelegramUsername] = useState("");
-  const [bindCode, setBindCode] = useState("");
-  const [saving, setSaving] = useState(false);
+  const { data: session } = useSession();
+  const [prefs, setPrefs] = useState<UserPreferences | null>(null);
+  const [telegram, setTelegram] = useState<TelegramState | null>(null);
+  const [wechat, setWechat] = useState<WeChatState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [tgLoading, setTgLoading] = useState(false);
+  const [wxLoading, setWxLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [message, setMessage] = useState("");
 
+  /* Load everything */
   useEffect(() => {
-    async function loadSettings() {
+    async function load() {
       try {
-        const res = await fetch("/api/users/settings");
-        const data = await res.json();
-        if (data.user) {
-          setName(data.user.name || "");
-          setEmail(data.user.email || "");
+        const [prefsRes, tgRes, wxRes] = await Promise.all([
+          fetch("/api/users/settings"),
+          fetch("/api/users/telegram-bind", { method: "POST" }).catch(() => null),
+          fetch("/api/users/wechat-bind").catch(() => null),
+        ]);
+        const prefsData = await prefsRes.json();
+        setPrefs(prefsData.preferences || {
+          language: "zh-CN",
+          timezone: "Asia/Shanghai",
+          defaultPlatforms: [],
+          publishMode: "manual",
+          notifyVia: ["telegram"],
+        });
+
+        if (tgRes?.ok) {
+          const tgData = await tgRes.json();
+          setTelegram(tgData);
         }
-        if (data.preferences) {
-          setTimezone(data.preferences.timezone || "Asia/Shanghai");
-          setNotificationLevel(data.preferences.notificationLevel || "important");
-          if (data.preferences.dashscopeApiKey) setDashscopeKey("••••••••");
+
+        if (wxRes?.ok) {
+          const wxData = await wxRes.json();
+          setWechat(wxData);
         }
-        if (data.telegram) {
-          setTelegramBound(true);
-          setTelegramUsername(data.telegram.telegramUsername || "");
-        }
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
       setLoading(false);
     }
-    loadSettings();
+    load();
   }, []);
 
+  /* Save preferences */
   const handleSave = async () => {
+    if (!prefs) return;
     setSaving(true);
-    setMessage("");
     try {
-      const res = await fetch("/api/users/settings", {
+      await fetch("/api/users/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          timezone,
-          notificationLevel,
-          dashscopeKey: dashscopeKey === "••••••••" ? undefined : dashscopeKey || undefined,
-        }),
+        body: JSON.stringify({ preferences: prefs }),
       });
-      if (res.ok) {
-        setMessage("设置已保存");
-      } else {
-        setMessage("保存失败");
-      }
-    } catch {
-      setMessage("保存失败");
-    }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch { /* ignore */ }
     setSaving(false);
-    setTimeout(() => setMessage(""), 3000);
   };
 
-  const handleGenerateBindCode = async () => {
+  /* Telegram bind */
+  const handleTelegramBind = async () => {
+    setTgLoading(true);
     try {
-      const res = await fetch("/api/users/telegram-bind", {
-        method: "POST",
-      });
+      const res = await fetch("/api/users/telegram-bind", { method: "POST" });
       const data = await res.json();
-      if (data.bindCode) {
-        setBindCode(data.bindCode);
-      }
-    } catch {
-      // ignore
-    }
+      setTelegram(data);
+    } catch { /* ignore */ }
+    setTgLoading(false);
   };
 
-  const handleUnbind = async () => {
+  const handleTelegramUnbind = async () => {
+    if (!confirm("确定要解绑 Telegram 吗？")) return;
+    setTgLoading(true);
     try {
       await fetch("/api/users/telegram-bind", { method: "DELETE" });
-      setTelegramBound(false);
-      setTelegramUsername("");
-      setBindCode("");
-    } catch {
-      // ignore
-    }
+      setTelegram({ bound: false });
+    } catch { /* ignore */ }
+    setTgLoading(false);
   };
 
-  const copyBindCode = async () => {
-    await navigator.clipboard.writeText(bindCode);
+  /* WeChat bind */
+  const handleWeChatBind = () => {
+    // Redirect to NextAuth WeChat OAuth flow
+    window.location.href = "/api/auth/signin/wechat?callbackUrl=/settings";
+  };
+
+  const handleWeChatUnbind = async () => {
+    if (!confirm("确定要解绑微信吗？")) return;
+    setWxLoading(true);
+    try {
+      await fetch("/api/users/wechat-bind", { method: "DELETE" });
+      setWechat({ bound: false });
+    } catch { /* ignore */ }
+    setWxLoading(false);
+  };
+
+  /* Copy helper */
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -106,179 +179,244 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <Loader2 className="h-8 w-8 animate-spin text-gray-300" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-3xl font-bold">设置</h1>
-        <p className="text-muted-foreground mt-1">管理你的账号和偏好设置</p>
+        <h1 className="text-2xl font-bold text-gray-900">设置</h1>
+        <p className="text-gray-500 text-sm mt-1">管理你的个人偏好和账户连接</p>
       </div>
 
-      {/* Profile */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <User className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">个人信息</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      {/* ---------- Profile ---------- */}
+      <Section icon={User} iconBg="bg-blue-50" iconColor="text-blue-600" title="个人信息" description="基本账户信息">
+        <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium mb-1.5 block">名称</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="你的名字" />
+            <label className="text-sm font-medium text-gray-700 mb-1.5 block">用户名</label>
+            <Input value={session?.user?.name || ""} readOnly className="rounded-xl border-gray-200 bg-gray-50 text-gray-600" />
           </div>
           <div>
-            <label className="text-sm font-medium mb-1.5 block">邮箱</label>
-            <Input value={email} disabled placeholder="your@email.com" type="email" />
-            <p className="text-xs text-muted-foreground mt-1">邮箱不可更改</p>
+            <label className="text-sm font-medium text-gray-700 mb-1.5 block">邮箱</label>
+            <Input value={session?.user?.email || ""} readOnly className="rounded-xl border-gray-200 bg-gray-50 text-gray-600" />
           </div>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">时区</label>
-            <select
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            >
-              <option value="Asia/Shanghai">北京时间 (UTC+8)</option>
-              <option value="Asia/Tokyo">东京时间 (UTC+9)</option>
-              <option value="America/New_York">美东时间 (UTC-5)</option>
-              <option value="America/Los_Angeles">美西时间 (UTC-8)</option>
-              <option value="Europe/London">伦敦时间 (UTC+0)</option>
-            </select>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+      </Section>
 
-      {/* Notifications */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">通知设置</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {[
-              { value: "all", label: "全部通知", desc: "接收所有类型的通知" },
-              { value: "important", label: "仅重要通知", desc: "发布完成、登录过期等" },
-              { value: "errors", label: "仅错误", desc: "只在出错时通知" },
-            ].map((opt) => (
-              <label
-                key={opt.value}
-                className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                  notificationLevel === opt.value
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/30"
-                }`}
+      {/* ---------- Preferences ---------- */}
+      <Section icon={Globe} iconBg="bg-emerald-50" iconColor="text-emerald-600" title="偏好设置" description="内容创作和发布偏好">
+        {prefs && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1.5 block">语言</label>
+              <select
+                value={prefs.language}
+                onChange={(e) => setPrefs({ ...prefs, language: e.target.value })}
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               >
-                <input
-                  type="radio"
-                  name="notification"
-                  value={opt.value}
-                  checked={notificationLevel === opt.value}
-                  onChange={(e) => setNotificationLevel(e.target.value)}
-                  className="mt-0.5"
-                />
-                <div>
-                  <div className="text-sm font-medium">{opt.label}</div>
-                  <div className="text-xs text-muted-foreground">{opt.desc}</div>
-                </div>
-              </label>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* API Keys */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Key className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">API 密钥</CardTitle>
-          </div>
-          <CardDescription>用于 AI 模型调用，密钥将加密存储</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">
-              阿里云 DashScope API Key
-            </label>
-            <Input
-              value={dashscopeKey}
-              onChange={(e) => setDashscopeKey(e.target.value)}
-              placeholder="sk-..."
-              type="password"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              获取方式: <a href="https://dashscope.console.aliyun.com/" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">DashScope 控制台</a>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Telegram */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">Telegram 绑定</CardTitle>
-          </div>
-          <CardDescription>绑定后可通过 Telegram 与 AI 助手对话</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {telegramBound ? (
-            <div className="flex items-center justify-between">
-              <div className="text-sm">
-                <span className="text-green-600 font-medium">已绑定</span>
-                {telegramUsername && (
-                  <span className="text-muted-foreground ml-2">@{telegramUsername}</span>
-                )}
+                <option value="zh-CN">简体中文</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1.5 block">时区</label>
+              <select
+                value={prefs.timezone}
+                onChange={(e) => setPrefs({ ...prefs, timezone: e.target.value })}
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              >
+                <option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</option>
+                <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
+                <option value="America/New_York">America/New_York (UTC-5)</option>
+                <option value="America/Los_Angeles">America/Los_Angeles (UTC-8)</option>
+                <option value="Europe/London">Europe/London (UTC+0)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1.5 block">发布模式</label>
+              <div className="flex gap-3">
+                {[
+                  { value: "manual", label: "手动审核", desc: "每次发布前人工确认" },
+                  { value: "auto", label: "自动发布", desc: "AI 创作后自动发布" },
+                ].map((mode) => (
+                  <button
+                    key={mode.value}
+                    onClick={() => setPrefs({ ...prefs, publishMode: mode.value })}
+                    className={`flex-1 p-3 rounded-xl border text-left transition-all ${
+                      prefs.publishMode === mode.value
+                        ? "border-blue-300 bg-blue-50/50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className={`text-sm font-medium ${prefs.publishMode === mode.value ? "text-blue-600" : "text-gray-700"}`}>
+                      {mode.label}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">{mode.desc}</div>
+                  </button>
+                ))}
               </div>
-              <Button variant="outline" size="sm" onClick={handleUnbind}>
-                解绑
+            </div>
+            <div className="pt-2">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : saved ? (
+                  <Check className="h-4 w-4 mr-2" />
+                ) : null}
+                {saved ? "已保存" : saving ? "保存中..." : "保存偏好"}
               </Button>
             </div>
-          ) : (
-            <div className="text-center py-4">
-              <p className="text-sm text-muted-foreground mb-4">
-                发送绑定码到 Telegram Bot 即可完成绑定
-              </p>
-              {bindCode ? (
-                <div className="flex items-center justify-center gap-2">
-                  <code className="px-4 py-2 bg-muted rounded-lg text-lg font-mono font-bold">
-                    {bindCode}
-                  </code>
-                  <Button variant="ghost" size="sm" onClick={copyBindCode}>
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-              ) : (
-                <Button variant="outline" onClick={handleGenerateBindCode}>
-                  生成绑定码
-                </Button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Save */}
-      <div className="flex items-center justify-end gap-4">
-        {message && (
-          <span className={`text-sm ${message.includes("失败") ? "text-red-500" : "text-green-500"}`}>
-            {message}
-          </span>
+          </div>
         )}
-        <Button onClick={handleSave} disabled={saving} className="gap-2">
-          <Save className="h-4 w-4" />
-          {saving ? "保存中..." : "保存设置"}
-        </Button>
-      </div>
+      </Section>
+
+      {/* ---------- Telegram Binding ---------- */}
+      <Section icon={Bot} iconBg="bg-sky-50" iconColor="text-sky-600" title="Telegram 绑定" description="绑定后可通过 Telegram Bot 接收通知和操控助手">
+        {telegram?.bound && telegram.telegramUsername ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50">
+                <Bot className="h-5 w-5 text-sky-600" />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">
+                  @{telegram.telegramUsername}
+                </div>
+                <div className="text-xs text-emerald-500 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  已绑定
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTelegramUnbind}
+              disabled={tgLoading}
+              className="rounded-xl border-gray-200 text-red-500 hover:bg-red-50 hover:border-red-200"
+            >
+              解绑
+            </Button>
+          </div>
+        ) : telegram?.bindCode ? (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">{telegram.instruction}</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-gray-100 rounded-xl px-4 py-2.5 text-sm font-mono text-gray-900">
+                /bind {telegram.bindCode}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyToClipboard(`/bind ${telegram.bindCode}`)}
+                className="rounded-xl border-gray-200"
+              >
+                {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4 text-gray-400" />}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            onClick={handleTelegramBind}
+            disabled={tgLoading}
+            className="rounded-xl bg-sky-500 hover:bg-sky-600 text-white"
+          >
+            {tgLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            获取绑定码
+          </Button>
+        )}
+      </Section>
+
+      {/* ---------- WeChat Binding ---------- */}
+      <Section icon={MessageCircle} iconBg="bg-green-50" iconColor="text-green-600" title="微信绑定" description="绑定后可通过微信登录和接收消息推送">
+        {wechat?.bound ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-50">
+                <MessageCircle className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">
+                  微信账号
+                </div>
+                <div className="text-xs text-emerald-500 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  已绑定{wechat.providerAccountId ? ` (${wechat.providerAccountId.slice(0, 8)}...)` : ""}
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleWeChatUnbind}
+              disabled={wxLoading}
+              className="rounded-xl border-gray-200 text-red-500 hover:bg-red-50 hover:border-red-200"
+            >
+              {wxLoading && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              解绑
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500">
+              绑定微信后，你可以使用微信扫码快捷登录，并接收创作进度通知。
+            </p>
+            <Button
+              onClick={handleWeChatBind}
+              disabled={wxLoading}
+              className="rounded-xl bg-green-500 hover:bg-green-600 text-white"
+            >
+              {wxLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              <MessageCircle className="h-4 w-4 mr-2" />
+              绑定微信
+            </Button>
+            <p className="text-xs text-gray-400">
+              需要微信开放平台应用配置完成后方可使用。点击后将跳转到微信扫码授权页面。
+            </p>
+          </div>
+        )}
+      </Section>
+
+      {/* ---------- API Keys ---------- */}
+      <Section icon={Key} iconBg="bg-amber-50" iconColor="text-amber-600" title="API 密钥" description="用于外部集成和开发者访问">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">
+            API 密钥可用于通过 REST API 访问你的创作助手服务。请妥善保管，不要泄露给他人。
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              value="sk-••••••••••••••••••••••••"
+              readOnly
+              className="rounded-xl border-gray-200 bg-gray-50 font-mono text-sm text-gray-500"
+            />
+            <Button variant="outline" size="sm" className="rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50">
+              重新生成
+            </Button>
+          </div>
+        </div>
+      </Section>
+
+      {/* ---------- Security ---------- */}
+      <Section icon={Shield} iconBg="bg-red-50" iconColor="text-red-500" title="安全" description="密码和账户安全设置">
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1.5 block">修改密码</label>
+            <div className="flex gap-2">
+              <Input type="password" placeholder="当前密码" className="rounded-xl border-gray-200" />
+              <Input type="password" placeholder="新密码" className="rounded-xl border-gray-200" />
+              <Button variant="outline" className="rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50 shrink-0">
+                更新
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Section>
     </div>
   );
 }

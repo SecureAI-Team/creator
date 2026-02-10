@@ -2,32 +2,24 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2 } from "lucide-react";
 
-interface ChatMessage {
-  id: string;
+interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
 }
 
+const suggestions = [
+  "帮我生成一篇关于 AI 趋势的文章",
+  "把这段文字改成适合小红书的风格",
+  "帮我策划一个短视频脚本",
+  "分析我上周的数据表现",
+  "推荐几个热门选题方向",
+];
+
 export default function ChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content:
-        "你好！我是你的 AI 创作助手。你可以用自然语言与我交流，比如：\n\n" +
-        "- \"帮我写一篇关于 AI 的文章\"\n" +
-        "- \"看看 B 站最近的数据\"\n" +
-        "- \"发布到抖音和小红书\"\n" +
-        "- \"最近有什么热点\"\n\n" +
-        "有什么我可以帮你的？",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -40,154 +32,173 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
+  const sendMessage = async (text?: string) => {
+    const content = text || input.trim();
+    if (!content) return;
+    setInput("");
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+    const userMsg: Message = {
       role: "user",
-      content: input.trim(),
+      content,
       timestamp: new Date(),
     };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
+    setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
-      const response = await fetch("/api/agent", {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage.content }),
+        body: JSON.stringify({
+          messages: [...messages, userMsg].map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }),
       });
-
-      const data = await response.json();
-
-      const assistantMessage: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        content: data.reply || data.error || "抱歉，我暂时无法处理你的请求。",
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.reply || "抱歉，我暂时无法回答这个问题。",
+          timestamp: new Date(),
+        },
+      ]);
     } catch {
       setMessages((prev) => [
         ...prev,
         {
-          id: `error-${Date.now()}`,
           role: "assistant",
-          content: "网络错误，请检查连接后重试。",
+          content: "网络错误，请稍后再试。",
           timestamp: new Date(),
         },
       ]);
     }
-
     setLoading(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      sendMessage();
     }
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold">AI 对话</h1>
-        <p className="text-muted-foreground mt-1">
-          与 AI 助手对话，完成创作、发布、数据分析等任务
-        </p>
-      </div>
-
-      {/* Chat messages */}
-      <Card className="flex-1 overflow-hidden flex flex-col">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex gap-3 ${
-                msg.role === "user" ? "flex-row-reverse" : ""
-              }`}
-            >
+    <div className="flex flex-col h-[calc(100vh-7rem)]">
+      {/* Messages area */}
+      <div className="flex-1 overflow-auto space-y-1 pb-4">
+        {messages.length === 0 ? (
+          /* Empty state with suggestions */
+          <div className="flex flex-col items-center justify-center h-full">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20 mb-6">
+              <Sparkles className="h-8 w-8" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
+              AI 创作助手
+            </h2>
+            <p className="text-sm text-gray-500 mb-8 text-center max-w-md">
+              我可以帮你选题、创作、改写、发布内容到多个平台。试试下面的建议开始对话。
+            </p>
+            <div className="flex flex-wrap justify-center gap-2 max-w-lg">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => sendMessage(s)}
+                  className="px-4 py-2 text-sm rounded-full border border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 transition-all shadow-sm"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* Message list */
+          <>
+            {messages.map((msg, i) => (
               <div
-                className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${
+                key={i}
+                className={`flex gap-3 p-4 rounded-2xl ${
                   msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground"
+                    ? "ml-auto max-w-[80%]"
+                    : "mr-auto max-w-[80%]"
                 }`}
               >
-                {msg.role === "user" ? (
-                  <User className="h-4 w-4" />
-                ) : (
-                  <Bot className="h-4 w-4" />
+                {msg.role === "assistant" && (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 text-white shrink-0 shadow-sm">
+                    <Bot className="h-4 w-4" />
+                  </div>
+                )}
+                <div
+                  className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white"
+                      : "bg-gray-100 text-gray-800"
+                  }`}
+                >
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <div
+                    className={`text-[10px] mt-1.5 ${
+                      msg.role === "user"
+                        ? "text-blue-200"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    {msg.timestamp.toLocaleTimeString("zh-CN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                </div>
+                {msg.role === "user" && (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-white shrink-0 shadow-sm">
+                    <User className="h-4 w-4" />
+                  </div>
                 )}
               </div>
-              <div
-                className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted"
-                }`}
-              >
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+            ))}
+            {loading && (
+              <div className="flex gap-3 p-4 mr-auto max-w-[80%]">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 text-white shrink-0 shadow-sm">
+                  <Bot className="h-4 w-4" />
+                </div>
+                <div className="rounded-2xl bg-gray-100 px-4 py-3 flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                  <span className="text-sm text-gray-400">正在思考...</span>
+                </div>
               </div>
-            </div>
-          ))}
+            )}
+            <div ref={messagesEndRef} />
+          </>
+        )}
+      </div>
 
-          {loading && (
-            <div className="flex gap-3">
-              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                <Bot className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="bg-muted rounded-2xl px-4 py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className="border-t border-border p-4">
-          <div className="flex gap-2 items-end">
-            <Input
+      {/* Input area */}
+      <div className="border-t border-gray-100 pt-4">
+        <div className="flex gap-3 items-end">
+          <div className="flex-1 relative">
+            <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入消息... (Enter 发送)"
-              disabled={loading}
-              className="flex-1"
+              placeholder="输入消息，开始创作..."
+              className="w-full resize-none rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 min-h-[44px] max-h-32"
+              rows={1}
             />
-            <Button
-              onClick={handleSend}
-              disabled={loading || !input.trim()}
-              size="icon"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
           </div>
-          <div className="flex gap-2 mt-2 flex-wrap">
-            {[
-              "帮我写一篇文章",
-              "查看今日数据",
-              "最近热点",
-              "发布到 B 站",
-            ].map((suggestion) => (
-              <button
-                key={suggestion}
-                onClick={() => setInput(suggestion)}
-                className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
-              >
-                {suggestion}
-              </button>
-            ))}
-          </div>
+          <Button
+            onClick={() => sendMessage()}
+            disabled={!input.trim() || loading}
+            className="rounded-xl h-11 w-11 p-0 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm disabled:opacity-40"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
         </div>
-      </Card>
+        <p className="text-[11px] text-gray-400 text-center mt-2">
+          AI 生成的内容仅供参考，请根据实际需要进行调整
+        </p>
+      </div>
     </div>
   );
 }

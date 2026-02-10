@@ -26,12 +26,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" style={{ colorScheme: "light" }}>
       <head>
         <link rel="icon" href="/icon-192.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/icon-192.svg" />
       </head>
-      <body className="antialiased">
+      <body className="antialiased bg-white text-gray-900">
         {children}
         <ServiceWorkerRegistration />
       </body>
