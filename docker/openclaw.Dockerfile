@@ -17,15 +17,18 @@ ENV TZ=Asia/Shanghai
 ENV LANG=C.UTF-8
 
 # ---------- apt mirror acceleration ----------
+# Ubuntu 24.04 uses deb822 format; remove it and use classic sources.list
 COPY docker/mirrors/sources.list /etc/apt/sources.list
+RUN rm -f /etc/apt/sources.list.d/*.sources
 
-# ---------- Additional packages: VNC + desktop + fonts ----------
+# ---------- Additional packages: VNC + lightweight desktop + fonts ----------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # CJK fonts for Chinese content platforms
     fonts-noto-cjk fonts-noto-color-emoji \
-    # VNC + lightweight desktop
-    tigervnc-standalone-server tigervnc-common \
-    dbus-x11 xfce4 xfce4-terminal \
+    # x11vnc + Xvfb for remote desktop (simpler than TigerVNC)
+    x11vnc xvfb \
+    # Lightweight window manager (XFCE is too heavy)
+    fluxbox \
     # Process management
     supervisor procps \
     && rm -rf /var/lib/apt/lists/*
@@ -58,7 +61,7 @@ COPY docker/entrypoint-openclaw.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ---------- Create runtime directories ----------
-RUN mkdir -p /data/users /home/creator/.vnc && \
+RUN mkdir -p /data/users /home/creator/.vnc /var/log/supervisor && \
     chown -R creator:creator /home/creator /data/users
 
 # ---------- Supervisor config ----------
