@@ -7,7 +7,7 @@
 #   docker compose down                   # Stop all services
 #   docker compose down -v                # Stop and remove volumes
 #
-# 国内部署: 默认使用阿里云容器镜像 (ACR) 加速，无需 VPN
+# 国内部署: 默认使用 DaoCloud 镜像加速 (m.daocloud.io)，无需 VPN
 # 海外部署: docker compose build --build-arg REGISTRY=docker.io/library
 # =============================================================================
 
@@ -31,6 +31,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---- DB Init (migration + seed, runs once) ----
+  db-init:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: builder
+    container_name: creator-db-init
+    working_dir: /app
+    command: ["sh", "-c", "npx prisma db push --skip-generate && npx tsx prisma/seed.ts"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-creator}:${POSTGRES_PASSWORD:-creator_password}@postgres:5432/${POSTGRES_DB:-creator_saas}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   # ---- Next.js Web App ----
   web:
     build:
@@ -41,12 +57,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-creator}:${POSTGRES_PASSWORD:-creator_password}@postgres:5432/${POSTGRES_DB:-creator_saas}?schema=public
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-this-to-random-32-chars}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       OPENCLAW_GATEWAY_URL: http://openclaw:3000
+      AUTH_TRUST_HOST: "true"
       NODE_ENV: production
     ports:
       - "127.0.0.1:3001:3001"

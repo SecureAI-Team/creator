@@ -40,8 +40,8 @@ else
   echo "Docker 配置已存在"
 fi
 echo ""
-echo "  提示: 本项目 Dockerfile 和 docker-compose.yml 已使用阿里云 ACR 镜像"
-echo "  (registry.cn-hangzhou.aliyuncs.com)，无需配置 Docker Hub mirror。"
+echo "  提示: 本项目 Dockerfile 和 docker-compose.yml 已使用 DaoCloud 镜像加速"
+echo "  (m.daocloud.io)，无需配置 Docker Hub mirror。"
 
 # ------ 3. Create .env file ------
 echo "[3/5] 检查环境变量配置..."
@@ -93,19 +93,26 @@ fi
 echo "[4/5] 构建并启动所有服务..."
 docker compose up -d --build
 
-# ------ 5. Initialize database ------
-echo "[5/5] 初始化数据库..."
-sleep 5  # Wait for postgres to be fully ready
-docker compose exec web npx prisma db push --skip-generate 2>/dev/null || {
-  echo "数据库初始化需要手动执行："
-  echo "  docker compose exec web npx prisma db push --skip-generate"
-}
+# ------ 5. Wait for services and show status ------
+echo "[5/5] 等待服务就绪..."
+echo ""
+
+# db-init service handles prisma db push + seed automatically
+# Wait for it to complete
+echo "正在初始化数据库和创建默认账户 (db-init 服务)..."
+docker compose logs -f db-init 2>/dev/null || true
 
 echo ""
 echo "=== 部署完成 ==="
 echo ""
 echo "服务状态："
 docker compose ps
+echo ""
+echo "──────────────────────────────────────"
+echo "默认登录账户："
+echo "  管理员: admin@creator.local / admin123456"
+echo "  演示:   demo@creator.local  / demo123456"
+echo "──────────────────────────────────────"
 echo ""
 echo "访问方式："
 echo "  Web 应用: http://$(hostname -I | awk '{print $1}')"

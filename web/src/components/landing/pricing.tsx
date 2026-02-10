@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Check } from "lucide-react";
 import Link from "next/link";
 
@@ -54,59 +53,82 @@ const plans = [
 
 export function Pricing() {
   return (
-    <section id="pricing" className="py-20 bg-muted/50">
+    <section id="pricing" className="py-24 bg-gradient-to-b from-gray-50/80 to-white">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        {/* Section header */}
         <div className="text-center mb-16">
-          <h2 className="text-3xl font-bold sm:text-4xl">简单透明的价格</h2>
-          <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1 text-sm font-medium text-emerald-700 mb-4">
+            定价方案
+          </div>
+          <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl">
+            简单透明的价格
+          </h2>
+          <p className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto">
             免费开始，按需升级。所有方案均包含核心 AI 创作能力。
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+        {/* Pricing cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto items-start">
           {plans.map((plan) => (
-            <Card
+            <div
               key={plan.name}
-              className={
+              className={`relative rounded-2xl border p-8 transition-all duration-300 ${
                 plan.highlighted
-                  ? "border-primary shadow-lg scale-105 relative"
-                  : ""
-              }
+                  ? "border-blue-200 bg-white shadow-xl shadow-blue-100/50 scale-[1.02] ring-1 ring-blue-100"
+                  : "border-gray-100 bg-white hover:shadow-lg hover:shadow-gray-100/80"
+              }`}
             >
               {plan.highlighted && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-xs text-primary-foreground font-medium">
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-1 text-xs text-white font-medium shadow-sm">
                   最受欢迎
                 </div>
               )}
-              <CardHeader>
-                <CardTitle className="text-xl">{plan.name}</CardTitle>
-                <CardDescription>{plan.description}</CardDescription>
-                <div className="mt-4">
-                  <span className="text-4xl font-bold">&yen;{plan.price}</span>
+
+              <div className="mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {plan.name}
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">{plan.description}</p>
+                <div className="mt-5 flex items-baseline gap-1">
+                  <span className="text-4xl font-bold text-gray-900">
+                    &yen;{plan.price}
+                  </span>
                   {plan.price !== "0" && (
-                    <span className="text-muted-foreground text-sm">/月</span>
+                    <span className="text-gray-400 text-sm">/月</span>
                   )}
                 </div>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 mb-6">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm">
-                      <Check className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/register">
-                  <Button
-                    className="w-full"
-                    variant={plan.highlighted ? "default" : "outline"}
+              </div>
+
+              <ul className="space-y-3 mb-8">
+                {plan.features.map((feature) => (
+                  <li
+                    key={feature}
+                    className="flex items-start gap-2.5 text-sm text-gray-600"
                   >
-                    {plan.cta}
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
+                    <Check
+                      className={`h-4 w-4 mt-0.5 shrink-0 ${
+                        plan.highlighted ? "text-blue-500" : "text-emerald-500"
+                      }`}
+                    />
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+
+              <Link href="/register">
+                <Button
+                  className={`w-full rounded-xl h-11 ${
+                    plan.highlighted
+                      ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20"
+                      : "border-gray-200 text-gray-700 hover:bg-gray-50"
+                  }`}
+                  variant={plan.highlighted ? "default" : "outline"}
+                >
+                  {plan.cta}
+                </Button>
+              </Link>
+            </div>
           ))}
         </div>
       </div>

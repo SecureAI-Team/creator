@@ -21,6 +21,9 @@ RUN npm ci --ignore-scripts
 FROM ${REGISTRY}/node:22-alpine AS builder
 WORKDIR /app
 
+# Mirror config (also used when this stage serves as db-init container)
+COPY docker/mirrors/npmrc /root/.npmrc
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY web/ ./
 
