@@ -1,12 +1,16 @@
 # =============================================================================
 # OpenClaw + Playwright + Chromium + VNC
 # =============================================================================
-# For China/Aliyun ECS: uses DaoCloud mirror by default (docker.io is blocked)
-# Override with: docker compose build --build-arg REGISTRY=docker.io/library
+# Uses Microsoft Playwright Docker image as base (Chromium pre-installed).
+# Pulled via DaoCloud mirror since cdn.playwright.dev & docker.io are blocked
+# in China.
+#
+# Override for non-China:
+#   docker compose build --build-arg PW_IMAGE=mcr.microsoft.com/playwright:v1.50.1-noble
 # =============================================================================
 
-ARG REGISTRY=m.daocloud.io/docker.io/library
-FROM ${REGISTRY}/ubuntu:24.04
+ARG PW_IMAGE=m.daocloud.io/mcr.microsoft.com/playwright:v1.50.1-noble
+FROM ${PW_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
@@ -15,47 +19,30 @@ ENV LANG=C.UTF-8
 # ---------- apt mirror acceleration ----------
 COPY docker/mirrors/sources.list /etc/apt/sources.list
 
-# ---------- System dependencies ----------
+# ---------- Additional packages: VNC + desktop + fonts ----------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl wget git unzip ca-certificates gnupg \
-    # Chromium / Playwright deps
-    libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 \
-    libcups2t64 libdbus-1-3 libdrm2 libgbm1 \
-    libgtk-3-0t64 libnspr4 libnss3 libx11-xcb1 \
-    libxcomposite1 libxdamage1 libxrandr2 \
-    xdg-utils libxss1 libxtst6 \
-    # Fonts (CJK + Emoji for Chinese content platforms)
+    # CJK fonts for Chinese content platforms
     fonts-noto-cjk fonts-noto-color-emoji \
-    # VNC
+    # VNC + lightweight desktop
     tigervnc-standalone-server tigervnc-common \
     dbus-x11 xfce4 xfce4-terminal \
-    # Utilities
+    # Process management
     supervisor procps \
     && rm -rf /var/lib/apt/lists/*
 
-# ---------- Node.js 22.x ----------
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/* && \
-    npm config set registry https://registry.npmmirror.com
-
 # ---------- npm mirror ----------
 COPY docker/mirrors/npmrc /root/.npmrc
+RUN npm config set registry https://registry.npmmirror.com
 
 # ---------- OpenClaw ----------
 RUN npm install -g openclaw
 
-# ---------- Playwright + Chromium ----------
-# cdn.playwright.dev is blocked in China; use npmmirror binary mirror instead
-ENV PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
-# Install playwright globally (not via npx), then download Chromium via mirror
-RUN npm install -g playwright@latest
-RUN playwright install chromium
-# Install Chromium's system-level dependencies (libgbm, libnss3, etc.)
-RUN playwright install-deps chromium
+# ---------- Ensure Playwright browsers are discoverable ----------
+# The base image pre-installs browsers to /ms-playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ---------- Create app user ----------
-RUN useradd -m -s /bin/bash creator
+RUN useradd -m -s /bin/bash creator 2>/dev/null || true
 WORKDIR /home/creator/app
 
 # ---------- Copy project files ----------
