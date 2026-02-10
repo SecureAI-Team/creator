@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  User, Globe, Key, MessageCircle, Bot, Shield, Loader2, Check, Copy, ExternalLink,
+  User, Globe, Key, MessageCircle, Bot, Shield, Loader2, Check, Copy,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 

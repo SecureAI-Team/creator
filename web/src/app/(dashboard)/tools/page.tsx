@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
 import {
   FileText, Video, Image, Music, Settings2, ExternalLink, Loader2, Sparkles,
 } from "lucide-react";
