@@ -47,6 +47,11 @@ logs/
 node_modules/
 # package-lock.json  # committed for CI reproducibility
 
+# ---- Next.js ----
+web/.next/
+web/out/
+web/tsconfig.tsbuildinfo
+
 # ---- OpenClaw 运行时 ----
 .openclaw/
 

@@ -63,23 +63,37 @@ openclaw --version
 ## Step 4: 配置环境变量
 
 ```bash
+# OpenClaw 环境变量
 cp .env.example ~/.env.creator
 vim ~/.env.creator
+
+# Web 应用环境变量
+cp web/.env.example web/.env
+vim web/.env
 ```
 
-**必填项：**
+**必填项 (`~/.env.creator`)：**
 
 | 变量 | 说明 | 获取方式 |
 |------|------|----------|
 | `DASHSCOPE_API_KEY` | 通义千问 API Key | [DashScope 控制台](https://dashscope.console.aliyun.com/) |
 
-**推荐填写：**
+**推荐填写 (`~/.env.creator`)：**
 
 | 变量 | 说明 | 获取方式 |
 |------|------|----------|
 | `TELEGRAM_BOT_TOKEN` | Telegram 机器人 Token | @BotFather |
 | `TELEGRAM_USER_ID` | 你的 Telegram 用户 ID | @userinfobot |
 | `VNC_PASSWORD` | VNC 远程登录密码（至少 6 位） | 自定义 |
+
+**Web 应用环境变量 (`web/.env`)：**
+
+| 变量 | 说明 | 获取方式 |
+|------|------|----------|
+| `DATABASE_URL` | PostgreSQL 连接串 | `postgresql://creator:密码@localhost:5432/creator` |
+| `NEXTAUTH_URL` | 网站域名 | `https://your-domain.com` |
+| `NEXTAUTH_SECRET` | 会话加密密钥 | `openssl rand -base64 32` |
+| `DASHSCOPE_API_KEY` | 通义千问 API Key | 同上 |
 
 加载环境变量：
 
@@ -91,7 +105,61 @@ source ~/.env.creator
 
 ---
 
-## Step 5: 启动 OpenClaw
+## Step 5: 配置 PostgreSQL
+
+```bash
+# 创建数据库和用户
+sudo -u postgres psql
+CREATE USER creator WITH PASSWORD '你的密码';
+CREATE DATABASE creator OWNER creator;
+\q
+
+# 初始化数据库表
+cd ~/creator/web
+npx prisma db push
+```
+
+---
+
+## Step 6: 构建并启动 Web 应用
+
+```bash
+cd ~/creator/web
+
+# 安装依赖
+npm ci
+
+# 生成 Prisma 客户端
+npx prisma generate
+
+# 构建生产版本
+npm run build
+
+# 启动（默认端口 3001）
+PORT=3001 npm run start
+```
+
+> 也可从项目根目录执行: `npm run build:web` / `npm run start:web`
+
+---
+
+## Step 7: 配置 Nginx 反向代理
+
+```bash
+# 复制配置文件
+sudo cp scripts/nginx-saas.conf /etc/nginx/sites-available/creator
+sudo ln -sf /etc/nginx/sites-available/creator /etc/nginx/sites-enabled/
+
+# 编辑配置，替换 server_name 为你的域名
+sudo vim /etc/nginx/sites-available/creator
+
+# 测试并重载
+sudo nginx -t && sudo nginx -s reload
+```
+
+---
+
+## Step 8: 启动 OpenClaw
 
 ```bash
 cd ~/creator
@@ -107,9 +175,19 @@ openclaw start
 
 ---
 
-## Step 6: 功能验证清单
+## Step 9: 功能验证清单
 
-### 6.1 基础功能
+### 9.1 Web 应用
+
+| 检查项 | 操作 | 预期结果 |
+|--------|------|----------|
+| Landing Page | 浏览器访问 `https://your-domain.com` | 看到产品介绍页 |
+| 注册 | 点击"立即开始" | 可以通过邮箱注册新账号 |
+| 登录 | 使用注册的账号登录 | 跳转到引导页或控制台 |
+| 控制台 | 访问 `/overview` | 看到数据概览 |
+| API 健康检查 | `curl https://your-domain.com/api/health` | 返回 JSON 状态 |
+
+### 9.2 基础功能
 
 | 检查项 | 操作 | 预期结果 |
 |--------|------|----------|
@@ -117,7 +195,7 @@ openclaw start
 | 配置加载 | 查看 Gateway 日志 | tools.yaml、platforms.yaml 正确解析 |
 | Skill 加载 | 日志中搜索 `skill` | 60 个 Skill 全部加载 |
 
-### 6.2 Telegram 交互（如已配置）
+### 9.3 Telegram 交互（如已配置）
 
 | 检查项 | 操作 | 预期结果 |
 |--------|------|----------|
@@ -125,7 +203,7 @@ openclaw start
 | Skill 调用 | 发送 `/tools list` | 列出所有已注册工具 |
 | Skill 调用 | 发送 `/status` | 显示各平台登录态 |
 
-### 6.3 VNC 远程登录
+### 9.4 VNC 远程登录
 
 ```bash
 # 启动 VNC 服务
@@ -138,7 +216,7 @@ bash scripts/start-vnc.sh
 | noVNC 访问 | 浏览器打开 `http://<ECS_IP>:6080` | 看到 VNC 桌面 |
 | 浏览器登录 | 通过 Telegram 发送 `/login bilibili` | VNC 中浏览器打开 B 站登录页 |
 
-### 6.4 Cron 任务
+### 9.5 Cron 任务
 
 ```bash
 # 初始化定时任务
@@ -153,7 +231,7 @@ openclaw cron list
 | 任务数量 | 应列出 6 个 Cron 任务 |
 | 任务内容 | 包含 daily-report、data 拉取、trending-monitor 等 |
 
-### 6.5 完整工作流验证
+### 9.6 完整工作流验证
 
 以下为端到端测试（需要先完成平台登录）：
 
@@ -165,7 +243,7 @@ openclaw cron list
 
 ---
 
-## Step 7: 进程管理（systemd）
+## Step 10: 进程管理（systemd）
 
 将 OpenClaw 配置为系统服务，实现开机自启和异常重启：
 
@@ -189,7 +267,7 @@ sudo systemctl status openclaw
 
 ---
 
-## Step 8: 后续更新
+## Step 11: 后续更新
 
 当本地代码推送到 GitHub 后，在 ECS 上执行：
 

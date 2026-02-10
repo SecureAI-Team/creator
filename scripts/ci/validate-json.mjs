@@ -13,7 +13,11 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
 
-const files = ["openclaw.json"];
+const files = [
+  "openclaw.json",
+  "extension/manifest.json",
+  "web/public/manifest.json",
+];
 
 let hasError = false;
 

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>创作助手</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Not logged in -->
+    <div id="login-prompt" class="hidden">
+      <div class="logo">✦ 创作助手</div>
+      <p class="subtitle">请先在设置页配置服务器地址并登录</p>
+      <button id="btn-options" class="btn btn-primary">打开设置</button>
+    </div>
+
+    <!-- Logged in -->
+    <div id="main-content" class="hidden">
+      <div class="header">
+        <span class="logo-small">✦ 创作助手</span>
+        <button id="btn-settings" class="btn-icon" title="设置">⚙</button>
+      </div>
+
+      <!-- Status summary -->
+      <div id="status-section" class="section">
+        <div class="stats-row">
+          <div class="stat">
+            <span class="stat-value" id="stat-platforms">-</span>
+            <span class="stat-label">平台</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-content">-</span>
+            <span class="stat-label">内容</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-views">-</span>
+            <span class="stat-label">浏览</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Platform context (if on a supported platform page) -->
+      <div id="platform-context" class="section hidden">
+        <div class="context-banner">
+          当前平台: <strong id="context-platform-name"></strong>
+        </div>
+        <div class="actions-row">
+          <button class="btn btn-sm" id="btn-check-data">查看数据</button>
+          <button class="btn btn-sm" id="btn-check-comments">查看评论</button>
+        </div>
+      </div>
+
+      <!-- Quick actions -->
+      <div class="section">
+        <div class="actions-grid">
+          <button class="action-card" id="btn-chat">
+            <span class="action-icon">💬</span>
+            <span class="action-label">AI 对话</span>
+          </button>
+          <button class="action-card" id="btn-create">
+            <span class="action-icon">✍️</span>
+            <span class="action-label">新建内容</span>
+          </button>
+          <button class="action-card" id="btn-dashboard">
+            <span class="action-icon">📊</span>
+            <span class="action-label">控制台</span>
+          </button>
+          <button class="action-card" id="btn-page-assist">
+            <span class="action-icon">🔍</span>
+            <span class="action-label">页面助手</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

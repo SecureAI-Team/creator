@@ -80,3 +80,59 @@ jobs:
           node-version: "22"
       - name: Check project structure consistency
         run: node scripts/ci/check-structure.mjs
+
+  # -------------------------------------------------------
+  # Job 6: Web app build + lint
+  # -------------------------------------------------------
+  web-build:
+    name: Web App Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npx next lint
+      - name: Build
+        run: npm run build
+
+  # -------------------------------------------------------
+  # Job 7: Extension manifest validation
+  # -------------------------------------------------------
+  extension-check:
+    name: Extension Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate extension manifest
+        run: |
+          node -e "
+            const m = JSON.parse(require('fs').readFileSync('extension/manifest.json','utf-8'));
+            const required = ['manifest_version','name','version','permissions','action','background'];
+            const missing = required.filter(k => !m[k]);
+            if (missing.length) { console.error('Missing keys:', missing); process.exit(1); }
+            if (m.manifest_version !== 3) { console.error('Must be MV3'); process.exit(1); }
+            console.log('✓ extension/manifest.json is valid MV3 manifest');
+          "
+      - name: Check extension files exist
+        run: |
+          for f in popup/popup.html popup/popup.js popup/popup.css \
+                   sidepanel/sidepanel.html sidepanel/sidepanel.js sidepanel/sidepanel.css \
+                   content/content.js background/service-worker.js \
+                   options/options.html; do
+            if [ ! -f "extension/$f" ]; then
+              echo "✗ Missing extension/$f"
+              exit 1
+            fi
+          done
+          echo "✓ All extension files present"

@@ -8,7 +8,12 @@
     "typecheck": "tsc --noEmit",
     "lint:json": "node scripts/ci/validate-json.mjs",
     "lint:structure": "node scripts/ci/check-structure.mjs",
-    "ci": "npm run typecheck && npm run lint:json && npm run lint:structure"
+    "ci": "npm run typecheck && npm run lint:json && npm run lint:structure",
+    "dev:web": "npm run dev --prefix web",
+    "build:web": "npm run build --prefix web",
+    "start:web": "npm run start --prefix web",
+    "db:push": "npx prisma db push --schema web/prisma/schema.prisma",
+    "db:studio": "npx prisma studio --schema web/prisma/schema.prisma"
   },
   "devDependencies": {
     "typescript": "^5.7",

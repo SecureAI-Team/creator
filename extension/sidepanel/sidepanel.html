@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 助手</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <div class="header">
+      <span class="title">✦ AI 助手</span>
+      <div class="header-actions">
+        <button id="btn-context" class="btn-icon" title="获取页面上下文">📎</button>
+        <button id="btn-clear" class="btn-icon" title="清空对话">🗑</button>
+      </div>
+    </div>
+
+    <!-- Context banner -->
+    <div id="context-banner" class="context-banner hidden">
+      <span id="context-text"></span>
+      <button id="btn-dismiss-context" class="btn-dismiss">&times;</button>
+    </div>
+
+    <!-- Messages -->
+    <div id="messages" class="messages">
+      <div class="message assistant">
+        <div class="message-bubble">
+          你好！我是你的创作助手 🎨<br />
+          你可以：<br />
+          • 让我帮你写文章、生成视频脚本<br />
+          • 查看各平台数据<br />
+          • 管理内容发布<br />
+          • 或者点击 📎 获取当前页面上下文
+        </div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="input-area">
+      <textarea
+        id="input"
+        placeholder="说点什么..."
+        rows="1"
+        autofocus
+      ></textarea>
+      <button id="btn-send" class="btn-send" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" />
+        </svg>
+      </button>
+    </div>
+  </div>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

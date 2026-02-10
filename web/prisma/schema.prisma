@@ -1,0 +1,281 @@
+// =============================================================================
+// 创作助手 SaaS - 数据库 Schema
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth (NextAuth.js 标准表)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  phone         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // bcrypt hashed, for credentials login
+  role          UserRole  @default(USER)
+  onboarded     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts           Account[]
+  sessions           Session[]
+  preferences        UserPreferences?
+  platformConnections PlatformConnection[]
+  toolConfigs        ToolConfig[]
+  contentItems       ContentItem[]
+  cronJobs           UserCronJob[]
+  telegramBinding    TelegramBinding?
+
+  @@map("users")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// User Preferences
+// ---------------------------------------------------------------------------
+
+model UserPreferences {
+  id       String @id @default(cuid())
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  timezone          String @default("Asia/Shanghai")
+  language          String @default("zh-CN")
+  notificationLevel String @default("important") // all | important | errors
+  quietHoursStart   String? // e.g. "22:00"
+  quietHoursEnd     String? // e.g. "08:00"
+
+  // Content defaults
+  defaultStyle      String? // e.g. "专业严谨", "轻松幽默"
+  defaultAudience   String? // e.g. "技术开发者", "普通用户"
+  defaultWordCount  Int     @default(1500)
+  defaultVideoDuration Int  @default(300) // seconds
+  confirmBeforePublish Boolean @default(true)
+
+  // API Keys (encrypted)
+  dashscopeApiKey   String? @db.Text
+  youtubeApiKey     String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_preferences")
+}
+
+// ---------------------------------------------------------------------------
+// Platform Connections
+// ---------------------------------------------------------------------------
+
+model PlatformConnection {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  platformKey String   // bilibili, douyin, youtube, etc.
+  status      PlatformStatus @default(DISCONNECTED)
+  lastChecked DateTime?
+  lastError   String?
+  profilePort Int?     // CDP port assigned to this user's browser profile
+  cookieData  String?  @db.Text // encrypted cookie backup
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, platformKey])
+  @@map("platform_connections")
+}
+
+enum PlatformStatus {
+  CONNECTED
+  EXPIRED
+  DISCONNECTED
+}
+
+// ---------------------------------------------------------------------------
+// Tool Configurations
+// ---------------------------------------------------------------------------
+
+model ToolConfig {
+  id      String  @id @default(cuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  toolKey        String  // chatgpt, notebooklm, midjourney, etc.
+  enabled        Boolean @default(false)
+  isDefaultFor   String? // e.g. "text", "video", "image", "audio"
+  status         PlatformStatus @default(DISCONNECTED)
+  lastChecked    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, toolKey])
+  @@map("tool_configs")
+}
+
+// ---------------------------------------------------------------------------
+// Content Items
+// ---------------------------------------------------------------------------
+
+model ContentItem {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title       String
+  contentType ContentType
+  status      ContentStatus @default(DRAFT)
+  body        String?       @db.Text
+  mediaUrl    String?
+  coverUrl    String?
+  tags        String[]      // PostgreSQL array
+  platforms   String[]      // target platforms
+
+  publishRecords PublishRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("content_items")
+}
+
+enum ContentType {
+  TEXT
+  VIDEO
+  AUDIO
+  IMAGE
+}
+
+enum ContentStatus {
+  DRAFT
+  ADAPTED
+  REVIEWING
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+model PublishRecord {
+  id            String @id @default(cuid())
+  contentItemId String
+  contentItem   ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  platform      String
+  status        PublishStatus @default(PENDING)
+  platformUrl   String?
+  publishedAt   DateTime?
+  errorMessage  String?
+
+  // Metrics snapshot
+  views         Int @default(0)
+  likes         Int @default(0)
+  comments      Int @default(0)
+  shares        Int @default(0)
+  lastMetricsAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("publish_records")
+}
+
+enum PublishStatus {
+  PENDING
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Cron Jobs (per user)
+// ---------------------------------------------------------------------------
+
+model UserCronJob {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name     String
+  schedule String  // cron expression
+  enabled  Boolean @default(true)
+  message  String  @db.Text // the prompt to send
+  lastRun  DateTime?
+  nextRun  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_cron_jobs")
+}
+
+// ---------------------------------------------------------------------------
+// Telegram Binding
+// ---------------------------------------------------------------------------
+
+model TelegramBinding {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  telegramUserId String @unique
+  telegramUsername String?
+  bindCode       String?  // temporary binding code
+  bindCodeExpiry DateTime?
+  boundAt        DateTime @default(now())
+
+  @@map("telegram_bindings")
+}

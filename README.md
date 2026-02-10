@@ -347,13 +347,83 @@ creator/
 
 详见 `docs/` 目录下的参考文档。
 
+## Web Dashboard (SaaS)
+
+本项目包含一个基于 Next.js 的 Web Dashboard，支持多用户 SaaS 模式运营。
+
+### 功能
+
+- **Landing Page**：产品介绍、功能展示、定价方案
+- **多种登录方式**：GitHub/Google OAuth、邮箱密码、手机短信
+- **新手引导**：三步引导用户选择平台、工具和时区
+- **控制台**：概览统计、内容管理、数据分析、平台管理、AI 工具管理、设置
+- **AI 对话**：内嵌 AI 助手聊天面板，与 OpenClaw Agent 实时对话
+- **远程浏览器（VNC）**：内嵌 noVNC 面板，在线完成平台和工具的登录认证
+- **多客户端**：Chrome/Edge 浏览器扩展、PWA 安装、Telegram Mini App
+
+### 技术栈 (Web)
+
+- **Frontend**：Next.js 15 (App Router) + Tailwind CSS + shadcn/ui
+- **Authentication**：NextAuth.js v5 (多 Provider)
+- **Database**：PostgreSQL + Prisma ORM
+- **Multi-tenancy**：per-user OpenClaw 实例 + 工作空间隔离
+
+### Web 目录结构
+
+```
+web/
+├── prisma/schema.prisma    # 数据库 Schema
+├── src/
+│   ├── app/
+│   │   ├── (marketing)/    # Landing page
+│   │   ├── (auth)/         # 登录/注册/引导
+│   │   ├── (dashboard)/    # 控制台页面
+│   │   │   ├── overview/   # 数据概览
+│   │   │   ├── content/    # 内容管理
+│   │   │   ├── data/       # 数据分析
+│   │   │   ├── platforms/  # 平台管理
+│   │   │   ├── tools/      # AI 工具
+│   │   │   ├── chat/       # AI 对话
+│   │   │   ├── vnc/        # 远程浏览器
+│   │   │   └── settings/   # 设置
+│   │   └── api/            # API 路由
+│   ├── components/         # UI 组件
+│   ├── lib/                # 工具库 (auth, db, openclaw, workspace)
+│   └── middleware.ts       # 路由保护
+├── public/                 # 静态资源
+└── package.json
+```
+
+### 浏览器扩展 (Chrome/Edge)
+
+```
+extension/
+├── manifest.json           # MV3 manifest
+├── popup/                  # 弹出式快捷操作
+├── sidepanel/              # 侧边栏 AI 聊天
+├── content/                # 页面内容提取
+├── background/             # Service Worker
+└── options/                # 设置页面
+```
+
+### Telegram Mini App
+
+通过 Telegram Bot 菜单按钮打开的轻量级 Web 仪表盘，支持：
+- Telegram 账号自动认证（无需额外登录）
+- 快速查看状态和数据
+- AI 对话
+- 快速发布
+
 ## 技术栈
 
 - **框架**：OpenClaw (Gateway + Agent + OpenProse 工作流)
+- **Web**：Next.js 15 + Tailwind CSS + shadcn/ui + NextAuth.js + Prisma
 - **LLM**：阿里云 Qwen (DashScope API)
 - **浏览器自动化**：Playwright + Chromium (headless)
+- **数据库**：PostgreSQL
 - **服务器**：阿里云 ECS
 - **进程管理**：systemd / PM2
 - **远程操控**：VNC + noVNC（密码保护）
-- **渠道**：Telegram / WeChat / WebChat
+- **渠道**：Telegram / WeChat / WebChat / Web Dashboard
+- **客户端**：Chrome/Edge 扩展 + PWA + Telegram Mini App
 - **监控**：自定义脚本 + Telegram 告警
