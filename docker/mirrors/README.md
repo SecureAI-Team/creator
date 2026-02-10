@@ -6,39 +6,20 @@
 
 ## Docker Hub 镜像问题
 
-**Docker Hub (`docker.io`) 在国内已基本无法直接访问。** 本项目的 Dockerfiles 和 docker-compose.yml 已经全部配置为使用**阿里云容器镜像服务 (ACR)** 镜像，无需额外配置 Docker Hub mirror。
+**Docker Hub (`docker.io`) 在国内已基本无法直接访问。** 本项目的 Dockerfiles 和 docker-compose.yml 已经全部配置为使用 **[DaoCloud 公共镜像加速](https://github.com/DaoCloud/public-image-mirror)**，无需额外配置。
 
-具体来说：
-- Dockerfile 中的 `FROM` 指令默认使用 `registry.cn-hangzhou.aliyuncs.com/library/` 前缀
-- `docker-compose.yml` 中的 `image` 也使用 ACR 地址
-- 如果在海外部署，可以通过 build arg 切换回 Docker Hub：
-  ```bash
-  docker compose build --build-arg REGISTRY=docker.io/library
-  ```
+DaoCloud 的使用方式是在原始镜像地址前加 `m.daocloud.io/` 前缀：
 
-### 可选：配置阿里云个人镜像加速器
+| 原地址 | 加速地址 |
+|--------|----------|
+| `docker.io/library/node:22-alpine` | `m.daocloud.io/docker.io/library/node:22-alpine` |
+| `docker.io/library/ubuntu:24.04` | `m.daocloud.io/docker.io/library/ubuntu:24.04` |
+| `docker.io/library/postgres:16-alpine` | `m.daocloud.io/docker.io/library/postgres:16-alpine` |
 
-如果仍需 Docker Hub mirror（例如拉取其他第三方镜像），可以配置阿里云个人加速器：
-
-1. 登录 [阿里云容器镜像服务控制台](https://cr.console.aliyun.com/)
-2. 左侧菜单 → 镜像工具 → 镜像加速器
-3. 获取你的专属加速地址（格式 `https://xxxxx.mirror.aliyuncs.com`）
-4. 配置 Docker：
+如果在海外部署，可以通过 build arg 切换回 Docker Hub：
 
 ```bash
-sudo mkdir -p /etc/docker
-sudo tee /etc/docker/daemon.json <<-'EOF'
-{
-  "registry-mirrors": ["https://xxxxx.mirror.aliyuncs.com"],
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "50m",
-    "max-file": "3"
-  }
-}
-EOF
-sudo systemctl daemon-reload
-sudo systemctl restart docker
+docker compose build --build-arg REGISTRY=docker.io/library
 ```
 
 ---

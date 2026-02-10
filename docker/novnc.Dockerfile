@@ -1,9 +1,8 @@
 # =============================================================================
 # Lightweight noVNC + websockify container
-# Replaces theasp/novnc which can't be pulled from Docker Hub in China
 # =============================================================================
 
-ARG REGISTRY=registry.cn-hangzhou.aliyuncs.com/library
+ARG REGISTRY=m.daocloud.io/docker.io/library
 FROM ${REGISTRY}/alpine:3.21
 
 RUN apk add --no-cache python3 py3-pip py3-numpy bash procps && \

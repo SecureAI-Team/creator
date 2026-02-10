@@ -1,11 +1,11 @@
 # =============================================================================
 # OpenClaw + Playwright + Chromium + VNC
 # =============================================================================
-# For China/Aliyun ECS: uses ACR mirror by default (docker.io is blocked)
+# For China/Aliyun ECS: uses DaoCloud mirror by default (docker.io is blocked)
 # Override with: docker compose build --build-arg REGISTRY=docker.io/library
 # =============================================================================
 
-ARG REGISTRY=registry.cn-hangzhou.aliyuncs.com/library
+ARG REGISTRY=m.daocloud.io/docker.io/library
 FROM ${REGISTRY}/ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
