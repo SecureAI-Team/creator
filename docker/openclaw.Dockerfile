@@ -29,9 +29,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------- Node.js 22.x ----------
+# Use npmmirror for Node.js binary (nodesource may be slow from China)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    npm config set registry https://registry.npmmirror.com
 
 # ---------- npm mirror ----------
 COPY docker/mirrors/npmrc /root/.npmrc
@@ -40,8 +42,13 @@ COPY docker/mirrors/npmrc /root/.npmrc
 RUN npm install -g openclaw
 
 # ---------- Playwright + Chromium ----------
-RUN npx playwright install chromium && \
-    npx playwright install-deps chromium
+# cdn.playwright.dev is blocked in China; use npmmirror binary mirror instead
+ENV PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+# Install playwright globally (not via npx), then download Chromium via mirror
+RUN npm install -g playwright@latest
+RUN playwright install chromium
+# Install Chromium's system-level dependencies (libgbm, libnss3, etc.)
+RUN playwright install-deps chromium
 
 # ---------- Create app user ----------
 RUN useradd -m -s /bin/bash creator
