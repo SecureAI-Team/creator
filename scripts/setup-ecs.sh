@@ -1,119 +1,117 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ECS 服务器初始化脚本
-# 在全新的阿里云 ECS (Ubuntu 22.04+) 上运行
+# ECS Docker 环境一键部署脚本
+# 在阿里云 ECS (Ubuntu 24.04) 上运行，自动安装 Docker 并启动全部容器化服务
 # =============================================================================
 set -euo pipefail
 
-echo "=== 自媒体创作助手 SaaS - ECS 环境部署 ==="
+echo "=== 自媒体创作助手 SaaS - Docker 部署 ==="
+echo ""
 
-# ------ 1. 系统依赖 ------
-echo "[1/8] 安装系统依赖..."
-sudo apt-get update
-sudo apt-get install -y \
-  curl wget git unzip nginx \
-  ca-certificates fonts-liberation \
-  libasound2 libatk-bridge2.0-0 libatk1.0-0 \
-  libcups2 libdbus-1-3 libdrm2 libgbm1 \
-  libgtk-3-0 libnspr4 libnss3 libx11-xcb1 \
-  libxcomposite1 libxdamage1 libxrandr2 \
-  xdg-utils libxss1 libxtst6 \
-  fonts-noto-cjk fonts-noto-color-emoji
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+cd "$PROJECT_DIR"
 
-# ------ 2. PostgreSQL ------
-echo "[2/8] 安装 PostgreSQL..."
-if ! command -v psql &> /dev/null; then
-  sudo apt-get install -y postgresql postgresql-contrib
-  sudo systemctl enable postgresql
-  sudo systemctl start postgresql
-  # Create database and user
-  sudo -u postgres psql -c "CREATE USER creator WITH PASSWORD 'creator_password';" 2>/dev/null || true
-  sudo -u postgres psql -c "CREATE DATABASE creator_saas OWNER creator;" 2>/dev/null || true
-  sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE creator_saas TO creator;" 2>/dev/null || true
-  echo "PostgreSQL 已安装。请修改用户密码："
-  echo "  sudo -u postgres psql -c \"ALTER USER creator PASSWORD 'your-secure-password';\""
-fi
-echo "PostgreSQL $(psql --version | head -1)"
-
-# ------ 3. Node.js ------
-echo "[3/8] 安装 Node.js 22.x..."
-if ! command -v node &> /dev/null; then
-  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-  sudo apt-get install -y nodejs
-fi
-echo "Node.js $(node -v)"
-
-# ------ 4. OpenClaw ------
-echo "[4/8] 安装 OpenClaw..."
-if ! command -v openclaw &> /dev/null; then
-  npm install -g openclaw
-fi
-echo "OpenClaw 已安装"
-
-# ------ 5. Playwright + Chromium ------
-echo "[5/8] 安装 Playwright 和 Chromium..."
-npx playwright install chromium
-npx playwright install-deps chromium
-echo "Playwright + Chromium 已安装"
-
-# ------ 6. VNC (可选，用于远程手动登录浏览器) ------
-echo "[6/8] 安装 VNC 服务 (noVNC)..."
-sudo apt-get install -y tigervnc-standalone-server novnc websockify
-echo "VNC 已安装。启动方式："
-echo "  vncserver :1 -geometry 1280x800 -depth 24"
-echo "  websockify --web=/usr/share/novnc 6080 localhost:5901 &"
-echo "  浏览器访问: http://<ECS_IP>:6080/vnc.html"
-
-# ------ 7. 构建 Web 应用 ------
-echo "[7/8] 构建 Next.js Web 应用..."
-if [ -d "web" ]; then
-  cd web
-  npm install
-  npx prisma generate
-  npm run build
-  cd ..
-  echo "Web 应用构建完成"
+# ------ 1. Install Docker ------
+echo "[1/5] 安装 Docker..."
+if ! command -v docker &> /dev/null; then
+  # Use Aliyun Docker mirror for faster installation in China
+  curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  sudo apt-get update
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  sudo systemctl enable docker
+  sudo systemctl start docker
+  # Add current user to docker group
+  sudo usermod -aG docker "$USER"
+  echo "Docker 已安装。请重新登录以使 docker 组生效，或运行: newgrp docker"
 else
-  echo "web/ 目录不存在，跳过"
+  echo "Docker 已安装: $(docker --version)"
 fi
 
-# ------ 8. 环境变量 + 数据目录 ------
-echo "[8/8] 配置环境变量和数据目录..."
+# ------ 2. Configure Docker Hub mirror ------
+echo "[2/5] 配置 Docker Hub 镜像加速..."
+if [ ! -f /etc/docker/daemon.json ] || ! grep -q "mirror" /etc/docker/daemon.json 2>/dev/null; then
+  sudo mkdir -p /etc/docker
+  sudo cp "$PROJECT_DIR/docker/mirrors/daemon.json" /etc/docker/daemon.json
+  sudo systemctl daemon-reload
+  sudo systemctl restart docker
+  echo "Docker Hub 镜像加速已配置"
+else
+  echo "Docker Hub 镜像加速已存在"
+fi
 
-# Create user data directory
-sudo mkdir -p /data/users
-sudo chown "$(whoami)":"$(whoami)" /data/users
+# ------ 3. Create .env file ------
+echo "[3/5] 检查环境变量配置..."
+if [ ! -f "$PROJECT_DIR/.env" ]; then
+  cat > "$PROJECT_DIR/.env" << 'ENVEOF'
+# =============================================================================
+# 自媒体创作助手 Docker 环境变量
+# 请修改以下配置项后再运行 docker compose up
+# =============================================================================
 
-if [ ! -f ~/.env.creator ]; then
-  cat > ~/.env.creator << 'ENVEOF'
-# 阿里云 DashScope API Key（必填）
-export DASHSCOPE_API_KEY="sk-your-api-key-here"
+# ---- 数据库 ----
+POSTGRES_DB=creator_saas
+POSTGRES_USER=creator
+POSTGRES_PASSWORD=change-me-to-a-secure-password
 
-# 数据库
-export DATABASE_URL="postgresql://creator:creator_password@localhost:5432/creator_saas?schema=public"
+# ---- Web 应用 ----
+NEXTAUTH_URL=http://your-domain-or-ip
+NEXTAUTH_SECRET=change-this-to-random-32-chars
 
-# NextAuth
-export NEXTAUTH_URL="http://your-domain.com"
-export NEXTAUTH_SECRET="change-this-to-random-32-chars"
+# ---- AI 模型 (必填) ----
+DASHSCOPE_API_KEY=sk-your-dashscope-api-key
 
-# OpenClaw 用户数据目录
-export OPENCLAW_DATA_DIR="/data/users"
-export OPENCLAW_TEMPLATE_DIR="$HOME/creator"
+# ---- Telegram Bot (推荐) ----
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_USER_ID=
+
+# ---- VNC 密码 ----
+VNC_PASSWORD=creator123
 ENVEOF
-  echo "请编辑 ~/.env.creator 填入你的配置"
-  echo "然后执行: source ~/.env.creator"
+  echo ""
+  echo "  已创建 .env 文件。请编辑后继续："
+  echo "    vim $PROJECT_DIR/.env"
+  echo ""
+  echo "  必填项："
+  echo "    - POSTGRES_PASSWORD (数据库密码)"
+  echo "    - NEXTAUTH_URL (你的域名或 IP)"
+  echo "    - NEXTAUTH_SECRET (openssl rand -base64 32)"
+  echo "    - DASHSCOPE_API_KEY (通义千问 API Key)"
+  echo ""
+  echo "  编辑完成后运行："
+  echo "    docker compose up -d --build"
+  echo ""
+  exit 0
 else
-  echo "~/.env.creator 已存在"
+  echo ".env 文件已存在"
 fi
+
+# ------ 4. Build and start ------
+echo "[4/5] 构建并启动所有服务..."
+docker compose up -d --build
+
+# ------ 5. Initialize database ------
+echo "[5/5] 初始化数据库..."
+sleep 5  # Wait for postgres to be fully ready
+docker compose exec web npx prisma db push --skip-generate 2>/dev/null || {
+  echo "数据库初始化需要手动执行："
+  echo "  docker compose exec web npx prisma db push --skip-generate"
+}
 
 echo ""
 echo "=== 部署完成 ==="
 echo ""
-echo "下一步："
-echo "  1. 编辑 ~/.env.creator 填入 API Key 和数据库密码"
-echo "  2. source ~/.env.creator"
-echo "  3. cd creator/web && npx prisma db push  # 初始化数据库表"
-echo "  4. 配置 Nginx: sudo cp scripts/nginx-saas.conf /etc/nginx/sites-available/creator"
-echo "  5. sudo ln -s /etc/nginx/sites-available/creator /etc/nginx/sites-enabled/"
-echo "  6. sudo systemctl reload nginx"
-echo "  7. npm run start  # 启动 Web 应用 (或使用 PM2)"
+echo "服务状态："
+docker compose ps
+echo ""
+echo "访问方式："
+echo "  Web 应用: http://$(hostname -I | awk '{print $1}')"
+echo "  noVNC:   http://$(hostname -I | awk '{print $1}')/vnc/"
+echo "  健康检查: curl http://localhost/api/health"
+echo ""
+echo "常用命令："
+echo "  docker compose logs -f          # 查看所有日志"
+echo "  docker compose logs -f web      # 查看 Web 应用日志"
+echo "  docker compose restart web      # 重启 Web 应用"
+echo "  docker compose down             # 停止所有服务"
+echo "  docker compose up -d --build    # 重新构建并启动"

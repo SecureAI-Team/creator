@@ -64,6 +64,14 @@ chromium-data/
 Thumbs.db
 Desktop.ini
 
+# ---- Electron build output ----
+desktop/dist/
+desktop/out/
+desktop/node_modules/
+
+# ---- Extension packaging output ----
+dist/
+
 # ---- IDE ----
 .vscode/
 .idea/

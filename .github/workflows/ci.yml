@@ -107,7 +107,23 @@ jobs:
         run: npm run build
 
   # -------------------------------------------------------
-  # Job 7: Extension manifest validation
+  # Job 7: Docker build validation
+  # -------------------------------------------------------
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose.yml syntax
+        run: docker compose config --quiet
+      - name: Validate Dockerfiles (dry-run build check)
+        run: |
+          # Check that Dockerfiles parse correctly
+          docker buildx build --check -f docker/web.Dockerfile .
+          docker buildx build --check -f docker/openclaw.Dockerfile .
+
+  # -------------------------------------------------------
+  # Job 8: Extension manifest validation
   # -------------------------------------------------------
   extension-check:
     name: Extension Check

@@ -414,6 +414,64 @@ extension/
 - AI 对话
 - 快速发布
 
+## Docker 部署（推荐）
+
+全部服务已容器化，一键部署：
+
+```bash
+# 克隆代码
+git clone https://github.com/SecureAI-Team/creator.git
+cd creator
+
+# 一键安装 Docker + 配置镜像加速 + 启动
+bash scripts/setup-ecs.sh
+
+# 编辑环境变量后启动
+vim .env
+docker compose up -d --build
+```
+
+容器架构：
+
+| 服务 | 镜像 | 端口 | 说明 |
+|------|------|------|------|
+| `nginx` | nginx:alpine | 80/443 | 反向代理 |
+| `web` | Next.js standalone | 3001 | Web Dashboard |
+| `postgres` | postgres:16-alpine | 5432 | 数据库 |
+| `openclaw` | Ubuntu + Node + Playwright | 3000/5900 | AI Agent + VNC |
+| `novnc` | noVNC | 6080 | Web VNC 客户端 |
+
+国内加速配置位于 `docker/mirrors/`，支持 Docker Hub、npm、pip、apt 镜像加速。
+
+详细部署指南：[docs/deploy-guide.md](docs/deploy-guide.md)
+
+### 桌面应用 (Electron)
+
+轻量级桌面客户端，连接到你的 SaaS 服务器：
+
+```
+desktop/
+├── main.js               # 主进程
+├── preload.js             # 安全 IPC 桥接
+├── tray.js                # 系统托盘
+├── setup.html             # 首次连接配置
+├── electron-builder.yml   # 构建配置 (Win/Mac)
+└── assets/                # 应用图标
+```
+
+特性：
+- 系统托盘常驻，快速访问
+- 原生通知推送
+- 自动更新（通过 GitHub Releases）
+- 窗口位置记忆
+
+### 下载页面
+
+访问 `/download` 可以下载所有客户端：
+- **桌面应用**：Windows .exe / macOS .dmg
+- **浏览器扩展**：Chrome/Edge .zip 或 Chrome Web Store
+- **PWA**：浏览器内一键安装
+
 ## 技术栈
 
 - **框架**：OpenClaw (Gateway + Agent + OpenProse 工作流)
@@ -421,9 +479,11 @@ extension/
 - **LLM**：阿里云 Qwen (DashScope API)
 - **浏览器自动化**：Playwright + Chromium (headless)
 - **数据库**：PostgreSQL
+- **容器化**：Docker + Docker Compose（全服务容器化）
 - **服务器**：阿里云 ECS
-- **进程管理**：systemd / PM2
+- **桌面客户端**：Electron (Windows + macOS)
 - **远程操控**：VNC + noVNC（密码保护）
 - **渠道**：Telegram / WeChat / WebChat / Web Dashboard
-- **客户端**：Chrome/Edge 扩展 + PWA + Telegram Mini App
+- **客户端**：桌面应用 + Chrome/Edge 扩展 + PWA + Telegram Mini App
+- **CI/CD**：GitHub Actions (CI + Release)
 - **监控**：自定义脚本 + Telegram 告警

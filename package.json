@@ -13,7 +13,12 @@
     "build:web": "npm run build --prefix web",
     "start:web": "npm run start --prefix web",
     "db:push": "npx prisma db push --schema web/prisma/schema.prisma",
-    "db:studio": "npx prisma studio --schema web/prisma/schema.prisma"
+    "db:studio": "npx prisma studio --schema web/prisma/schema.prisma",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:build": "docker compose build",
+    "pack:extension": "node scripts/pack-extension.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7",

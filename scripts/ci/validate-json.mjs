@@ -17,6 +17,8 @@ const files = [
   "openclaw.json",
   "extension/manifest.json",
   "web/public/manifest.json",
+  "desktop/package.json",
+  "docker/mirrors/daemon.json",
 ];
 
 let hasError = false;

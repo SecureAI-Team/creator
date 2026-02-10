@@ -1,0 +1,1 @@
+placeholder - generate from icon.svg using: npx sharp-cli -i assets/icon.svg -o assets/icon.png resize 512 512

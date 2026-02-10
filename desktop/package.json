@@ -1,0 +1,25 @@
+{
+  "name": "creator-desktop",
+  "version": "1.0.0",
+  "description": "自媒体创作助手 - 桌面客户端",
+  "main": "main.js",
+  "author": "SecureAI Team",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0"
+  },
+  "build": {}
+}

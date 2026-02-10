@@ -1,0 +1,74 @@
+# =============================================================================
+# electron-builder configuration
+# =============================================================================
+
+appId: com.secureai.creator
+productName: 创作助手
+copyright: Copyright © 2026 SecureAI Team
+
+directories:
+  output: dist
+  buildResources: assets
+
+files:
+  - "**/*"
+  - "!dist"
+  - "!node_modules/.cache"
+
+# ---- Windows ----
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  artifactName: "creator-desktop-${version}-win-${arch}.${ext}"
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeaderIcon: assets/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 创作助手
+
+# ---- macOS ----
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: assets/icon.icns
+  category: public.app-category.productivity
+  artifactName: "creator-desktop-${version}-mac-${arch}.${ext}"
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# ---- Linux ----
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: assets/icon.png
+  category: Office
+  artifactName: "creator-desktop-${version}-linux-${arch}.${ext}"
+
+# ---- Auto-update ----
+publish:
+  provider: github
+  owner: SecureAI-Team
+  repo: creator

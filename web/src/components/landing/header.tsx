@@ -32,6 +32,9 @@ export function Header() {
           <Link href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
             价格方案
           </Link>
+          <Link href="/download" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            下载客户端
+          </Link>
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
@@ -56,6 +59,7 @@ export function Header() {
           <Link href="#platforms" className="block text-sm py-2" onClick={() => setMobileOpen(false)}>支持平台</Link>
           <Link href="#tools" className="block text-sm py-2" onClick={() => setMobileOpen(false)}>AI 工具</Link>
           <Link href="#pricing" className="block text-sm py-2" onClick={() => setMobileOpen(false)}>价格方案</Link>
+          <Link href="/download" className="block text-sm py-2" onClick={() => setMobileOpen(false)}>下载客户端</Link>
           <div className="flex gap-3 pt-3">
             <Link href="/login" className="flex-1">
               <Button variant="outline" className="w-full">登录</Button>

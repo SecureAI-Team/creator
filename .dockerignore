@@ -1,0 +1,53 @@
+# =============================================================================
+# Docker build context exclusions
+# =============================================================================
+
+# Git
+.git/
+.github/
+
+# Node modules (rebuilt in container)
+node_modules/
+web/node_modules/
+desktop/node_modules/
+
+# Next.js build output (rebuilt in container)
+web/.next/
+web/out/
+
+# Logs and backups
+logs/
+backups/
+*.log
+
+# Browser data (runtime only)
+browser-profiles/
+chromium-data/
+
+# Environment files (use docker-compose env instead)
+.env
+.env.local
+.env.production
+!.env.example
+!web/.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Electron build output
+desktop/dist/
+desktop/out/
+
+# Plans / docs not needed in images
+*.plan.md
+
+# TypeScript build info
+web/tsconfig.tsbuildinfo
+tsconfig.tsbuildinfo
