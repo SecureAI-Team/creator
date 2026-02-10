@@ -45,7 +45,7 @@ logs/
 
 # ---- Node.js ----
 node_modules/
-package-lock.json
+# package-lock.json  # committed for CI reproducibility
 
 # ---- OpenClaw 运行时 ----
 .openclaw/
