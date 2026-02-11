@@ -66,6 +66,7 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       OPENCLAW_GATEWAY_URL: http://openclaw:3000
       AUTH_TRUST_HOST: "true"
+      VNC_PASSWORD: ${VNC_PASSWORD:-creator123}
       NODE_ENV: production
     ports:
       - "127.0.0.1:3001:3001"

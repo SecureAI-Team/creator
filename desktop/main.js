@@ -70,8 +70,13 @@ function createWindow() {
 function loadApp() {
   const serverUrl = store.get("serverUrl");
   if (serverUrl) {
-    mainWindow.loadURL(serverUrl).catch(() => {
-      mainWindow.loadFile(path.join(__dirname, "setup.html"));
+    // Load /overview so user lands on dashboard (redirects to /login if not authenticated)
+    const target = serverUrl.replace(/\/+$/, "") + "/overview";
+    mainWindow.loadURL(target).catch(() => {
+      // Fallback to root if /overview fails
+      mainWindow.loadURL(serverUrl).catch(() => {
+        mainWindow.loadFile(path.join(__dirname, "setup.html"));
+      });
     });
   } else {
     mainWindow.loadFile(path.join(__dirname, "setup.html"));

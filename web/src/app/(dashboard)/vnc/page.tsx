@@ -1,15 +1,35 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { MonitorPlay, ArrowLeft, Maximize2, Minimize2, Loader2, Info } from "lucide-react";
+import { MonitorPlay, ArrowLeft, Maximize2, Minimize2, Loader2, Info, Key } from "lucide-react";
 
 function VNCContent() {
   const searchParams = useSearchParams();
   const platform = searchParams.get("platform");
   const tool = searchParams.get("tool");
   const [fullscreen, setFullscreen] = useState(false);
+  const [vncPassword, setVncPassword] = useState<string | null>(null);
+  const [pwdReady, setPwdReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/vnc-password")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) {
+          setVncPassword(data?.password || null);
+          setPwdReady(true);
+        }
+      })
+      .catch(() => setPwdReady(true));
+    const t = setTimeout(() => setPwdReady(true), 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, []);
 
   const target = platform || tool || "unknown";
   const targetLabel = platform
@@ -18,7 +38,8 @@ function VNCContent() {
       ? `工具登录: ${tool}`
       : "远程浏览器";
 
-  const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&quality=6&target=${encodeURIComponent(target)}`;
+  // When user is logged in, include password in URL so noVNC auto-connects without manual input
+  const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&quality=6&target=${encodeURIComponent(target)}${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ""}`;
 
   return (
     <div
@@ -67,35 +88,64 @@ function VNCContent() {
 
       {/* Tips */}
       {!fullscreen && (
-        <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Info className="h-4 w-4 text-blue-600" />
-            <span className="text-sm font-medium text-blue-700">操作提示</span>
+        <div className="space-y-4">
+          {vncPassword ? (
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Key className="h-4 w-4 text-emerald-600" />
+                <span className="text-sm font-medium text-emerald-700">已自动填入密码</span>
+              </div>
+              <p className="text-sm text-emerald-700/90">
+                连接时将自动使用已配置的 VNC 密码，无需手动输入
+              </p>
+            </div>
+          ) : pwdReady ? (
+            <div className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Key className="h-4 w-4 text-amber-600" />
+                <span className="text-sm font-medium text-amber-700">VNC 连接密码</span>
+              </div>
+              <p className="text-sm text-amber-700/90">
+                若 noVNC 要求输入密码，请向管理员获取或在 .env 中查看 VNC_PASSWORD
+              </p>
+            </div>
+          ) : null}
+          <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Info className="h-4 w-4 text-blue-600" />
+              <span className="text-sm font-medium text-blue-700">操作提示</span>
+            </div>
+            <ul className="text-sm text-blue-600/80 space-y-1 ml-6">
+              <li>
+                1. 在下方远程浏览器中正常登录你的 {platform || tool} 账号
+              </li>
+              <li>2. 登录成功后，系统会自动保存你的登录状态</li>
+              <li>3. 如遇验证码，请在远程浏览器中正常完成验证</li>
+              <li>4. 完成后返回平台/工具管理页面确认状态</li>
+            </ul>
           </div>
-          <ul className="text-sm text-blue-600/80 space-y-1 ml-6">
-            <li>
-              1. 在下方远程浏览器中正常登录你的 {platform || tool} 账号
-            </li>
-            <li>2. 登录成功后，系统会自动保存你的登录状态</li>
-            <li>3. 如遇验证码，请在远程浏览器中正常完成验证</li>
-            <li>4. 完成后返回平台/工具管理页面确认状态</li>
-          </ul>
         </div>
       )}
 
-      {/* VNC iframe */}
+      {/* VNC iframe - wait for password fetch so we can auto-inject */}
       <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden shadow-sm">
         <div
           className={`relative bg-gray-900 ${
             fullscreen ? "h-[calc(100vh-120px)]" : "h-[600px]"
           }`}
         >
-          <iframe
-            src={vncUrl}
-            className="w-full h-full border-0"
-            title="远程浏览器"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          />
+          {pwdReady ? (
+            <iframe
+              src={vncUrl}
+              className="w-full h-full border-0"
+              title="远程浏览器"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          )}
           <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-lg">
             远程浏览器 &middot; {target}
           </div>

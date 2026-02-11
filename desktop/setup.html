@@ -151,24 +151,41 @@
 
       <label for="server-url">服务器地址</label>
       <input
-        type="url"
+        type="text"
         id="server-url"
-        placeholder="https://your-server.com"
+        placeholder="http://47.121.183.92 或 https://your-server.com"
         autofocus
       />
-      <div class="hint">例如: https://creator.example.com</div>
+      <div class="hint">例如: https://creator.example.com 或 http://47.121.183.92</div>
 
       <button id="connect-btn" onclick="connect()">连接</button>
       <div id="status" class="status"></div>
+      <div id="fallback-browser" style="display:none; margin-top:1rem; text-align:center;">
+        <button type="button" onclick="openInBrowser()" style="background:transparent; border:1px solid rgba(100,116,139,0.5); color:#94a3b8; padding:0.5rem 1rem; border-radius:6px; font-size:0.875rem; cursor:pointer;">
+          在浏览器中打开
+        </button>
+      </div>
     </div>
 
     <div class="version" id="version"></div>
   </div>
 
   <script>
+    let lastConnectedUrl = '';
+
     // Show version
     if (window.creatorDesktop) {
       document.getElementById('version').textContent = `v${window.creatorDesktop.version} · ${window.creatorDesktop.platform}`;
+    }
+
+    function openInBrowser() {
+      if (lastConnectedUrl) {
+        if (window.creatorDesktop && window.creatorDesktop.openExternal) {
+          window.creatorDesktop.openExternal(lastConnectedUrl);
+        } else {
+          window.open(lastConnectedUrl, '_blank');
+        }
+      }
     }
 
     // Load saved URL if any
@@ -194,9 +211,11 @@
         return;
       }
 
-      // Ensure URL has protocol
+      // Ensure URL has protocol (use http for bare IP, https for hostname)
       if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url;
+        const host = url.split(/[/?#]/)[0];
+        const isIp = /^[\d.]+$/.test(host) || host.startsWith('[');
+        url = (isIp ? 'http://' : 'https://') + url;
         input.value = url;
       }
 
@@ -214,12 +233,25 @@
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
+        lastConnectedUrl = url;
         status.className = 'status success';
         status.textContent = '连接成功，正在加载...';
 
-        // Save and navigate
+        // Save and navigate (main process loads server URL in app)
         if (window.creatorDesktop) {
           await window.creatorDesktop.saveServerUrl(url);
+          // Fallback: if in-app load fails, show browser link after 3s
+          setTimeout(() => {
+            const fallback = document.getElementById('fallback-browser');
+            if (fallback && !fallback.dataset.shown) {
+              fallback.dataset.shown = '1';
+              fallback.style.display = 'block';
+            }
+          }, 3000);
+        } else {
+          status.textContent = '连接成功，但无法在应用内打开。请点击下方按钮在浏览器中打开。';
+          btn.disabled = false;
+          document.getElementById('fallback-browser').style.display = 'block';
         }
       } catch (err) {
         status.className = 'status error';

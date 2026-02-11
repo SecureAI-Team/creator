@@ -21,5 +21,11 @@ contextBridge.exposeInMainWorld("creatorDesktop", {
 
   // Platform info
   platform: process.platform,
-  version: require("./package.json").version,
+  version: (() => {
+    try {
+      return require("./package.json").version || "1.0.0";
+    } catch {
+      return "1.0.0";
+    }
+  })(),
 });
