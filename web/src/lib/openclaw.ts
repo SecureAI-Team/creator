@@ -5,9 +5,14 @@
  * (managed by supervisord) with Chromium + VNC display. The web container
  * forwards messages to the openclaw container over the Docker network.
  *
- * Environment variable OPENCLAW_URL controls the endpoint.
+ * When a desktop client has an active bridge connection, messages are routed
+ * to the user's local OpenClaw instead (bridge-first).
+ *
+ * Environment variable OPENCLAW_URL controls the server endpoint.
  * Default: http://openclaw:3000 (Docker service name).
  */
+
+import { sendViaBridge } from "@/lib/bridge";
 
 const OPENCLAW_URL =
   process.env.OPENCLAW_URL || "http://openclaw:3000";
@@ -20,12 +25,18 @@ interface InstanceStatus {
 }
 
 /**
- * Send a message to the OpenClaw Gateway via its WebChat HTTP API.
+ * Send a message to the OpenClaw Gateway.
+ * Prefers local bridge (desktop client) when available; falls back to server OpenClaw.
  */
 export async function sendMessage(
   userId: string,
   message: string
 ): Promise<string> {
+  const bridgeResult = await sendViaBridge(userId, message);
+  if (bridgeResult.ok) {
+    return bridgeResult.reply ?? "";
+  }
+
   const response = await fetch(`${OPENCLAW_URL}/api/chat`, {
     method: "POST",
     headers: {

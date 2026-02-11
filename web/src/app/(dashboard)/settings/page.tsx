@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  User, Globe, Key, MessageCircle, Bot, Shield, Loader2, Check, Copy,
+  User, Globe, Key, MessageCircle, Bot, Shield, Loader2, Check, Copy, Monitor,
 } from "lucide-react";
 import { useSession, signIn } from "next-auth/react";
 
@@ -82,6 +82,24 @@ export default function SettingsPage() {
   const [tgLoading, setTgLoading] = useState(false);
   const [wxLoading, setWxLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [useLocalOpenClaw, setUseLocalOpenClaw] = useState(true);
+  const [desktopReady, setDesktopReady] = useState(false);
+
+  /* Load desktop config (when in Electron) */
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? (window as Window & { creatorDesktop?: { getConfig?: () => Promise<{ useLocalOpenClaw?: boolean }> } }).creatorDesktop : undefined;
+    if (!api?.getConfig) return;
+    api.getConfig().then((cfg: { useLocalOpenClaw?: boolean }) => {
+      setUseLocalOpenClaw(cfg?.useLocalOpenClaw ?? true);
+      setDesktopReady(true);
+    });
+  }, []);
+
+  const handleToggleLocal = async (v: boolean) => {
+    setUseLocalOpenClaw(v);
+    const api = (window as Window & { creatorDesktop?: { updateSettings?: (s: object) => Promise<boolean> } }).creatorDesktop;
+    if (api?.updateSettings) await api.updateSettings({ useLocalOpenClaw: v });
+  };
 
   /* Load everything */
   useEffect(() => {
@@ -190,6 +208,30 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold text-gray-900">设置</h1>
         <p className="text-gray-500 text-sm mt-1">管理你的个人偏好和账户连接</p>
       </div>
+
+      {/* ---------- Local Mode (Desktop only) ---------- */}
+      {desktopReady && (
+        <Section icon={Monitor} iconBg="bg-violet-50" iconColor="text-violet-600" title="本地模式" description="使用本地 OpenClaw，浏览器在本地可见，无需 VNC">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-gray-900">默认使用本地 OpenClaw</div>
+              <div className="text-xs text-gray-500 mt-0.5">开启后，平台登录等操作将在本地浏览器中完成</div>
+            </div>
+            <button
+              onClick={() => handleToggleLocal(!useLocalOpenClaw)}
+              className={`relative w-12 h-6 rounded-full transition-colors ${
+                useLocalOpenClaw ? "bg-violet-500" : "bg-gray-200"
+              }`}
+            >
+              <span
+                className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                  useLocalOpenClaw ? "left-7" : "left-1"
+                }`}
+              />
+            </button>
+          </div>
+        </Section>
+      )}
 
       {/* ---------- Profile ---------- */}
       <Section icon={User} iconBg="bg-blue-50" iconColor="text-blue-600" title="个人信息" description="基本账户信息">

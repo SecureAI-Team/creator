@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { sendMessage, getInstanceStatus } from "@/lib/openclaw";
+import { hasBridge } from "@/lib/bridge";
 
 /**
  * Agent Bridge API
@@ -41,7 +42,8 @@ export async function GET() {
     }
 
     const status = getInstanceStatus(session.user.id);
-    return NextResponse.json(status);
+    const useLocal = await hasBridge(session.user.id);
+    return NextResponse.json({ ...status, hasBridge: useLocal });
   } catch {
     return NextResponse.json(
       { error: "获取状态失败" },

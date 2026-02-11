@@ -1,5 +1,6 @@
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { Providers } from "@/components/providers";
+import { BridgeConnector } from "@/components/bridge-connector";
 
 export default function DashboardLayout({
   children,
@@ -8,6 +9,7 @@ export default function DashboardLayout({
 }) {
   return (
     <Providers>
+      <BridgeConnector />
       <div className="flex min-h-screen bg-gray-50" style={{ colorScheme: "light" }}>
         <Sidebar />
         <main className="flex-1 overflow-auto">

@@ -5,12 +5,17 @@
 
 const { app, BrowserWindow, shell, ipcMain, Notification, Menu } = require("electron");
 const path = require("path");
+const fs = require("fs");
+const { spawn } = require("child_process");
 const Store = require("electron-store");
 const { createTray } = require("./tray");
+const { createBridge } = require("./bridge");
+const extract = require("extract-zip");
 
 const store = new Store({
   defaults: {
     serverUrl: "",
+    useLocalOpenClaw: true,
     windowBounds: { width: 1280, height: 800 },
     minimizeToTray: true,
   },
@@ -18,6 +23,8 @@ const store = new Store({
 
 let mainWindow = null;
 let tray = null;
+let bridgeInstance = null;
+let openclawProcess = null;
 
 function createWindow() {
   const { width, height, x, y } = store.get("windowBounds");
@@ -102,6 +109,7 @@ ipcMain.handle("save-server-url", async (_event, url) => {
 ipcMain.handle("get-config", async () => {
   return {
     serverUrl: store.get("serverUrl"),
+    useLocalOpenClaw: store.get("useLocalOpenClaw"),
     minimizeToTray: store.get("minimizeToTray"),
   };
 });
@@ -111,6 +119,61 @@ ipcMain.handle("update-settings", async (_event, settings) => {
   for (const [key, value] of Object.entries(settings)) {
     store.set(key, value);
   }
+  return true;
+});
+
+// Connect bridge (local OpenClaw relay) - called by web app when user is logged in
+ipcMain.handle("connect-bridge", async (_event, token) => {
+  const serverUrl = store.get("serverUrl");
+  const useLocal = store.get("useLocalOpenClaw");
+  if (!serverUrl || !useLocal || !token) return false;
+
+  if (bridgeInstance) bridgeInstance.disconnect();
+  bridgeInstance = createBridge(serverUrl);
+  const ok = await bridgeInstance.connect(token);
+  return ok;
+});
+
+// Sync workspace from server (arrayBuffer from fetch response)
+ipcMain.handle("sync-workspace", async (_event, arrayBuffer) => {
+  const workspaceDir = path.join(app.getPath("userData"), "workspace");
+  fs.mkdirSync(workspaceDir, { recursive: true });
+
+  const zipPath = path.join(app.getPath("temp"), "creator-workspace-sync.zip");
+  fs.writeFileSync(zipPath, Buffer.from(arrayBuffer));
+  try {
+    await extract(zipPath, { dir: workspaceDir });
+    return true;
+  } catch (err) {
+    console.error("[Sync Workspace]", err);
+    return false;
+  } finally {
+    try { fs.unlinkSync(zipPath); } catch {}
+  }
+});
+
+// Start local OpenClaw
+ipcMain.handle("start-local-openclaw", async () => {
+  if (openclawProcess) return true;
+
+  const workspaceDir = path.join(app.getPath("userData"), "workspace");
+  let openclawPath;
+  try {
+    const pkgPath = require.resolve("openclaw/package.json");
+    openclawPath = path.join(path.dirname(pkgPath), "openclaw.mjs");
+  } catch {
+    openclawPath = path.join(__dirname, "node_modules", "openclaw", "openclaw.mjs");
+  }
+  if (!fs.existsSync(openclawPath)) return false;
+
+  const nodeCmd = process.platform === "win32" ? "node.exe" : "node";
+  openclawProcess = spawn(nodeCmd, [openclawPath, "start", "--port", "3000"], {
+    cwd: workspaceDir,
+    env: { ...process.env, OPENCLAW_HOME: workspaceDir },
+    stdio: "inherit",
+  });
+
+  openclawProcess.on("exit", () => { openclawProcess = null; });
   return true;
 });
 

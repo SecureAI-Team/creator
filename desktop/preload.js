@@ -12,6 +12,15 @@ contextBridge.exposeInMainWorld("creatorDesktop", {
   getConfig: () => ipcRenderer.invoke("get-config"),
   updateSettings: (settings) => ipcRenderer.invoke("update-settings", settings),
 
+  // Local OpenClaw bridge (connect with token from /api/bridge/token)
+  connectBridge: (token) => ipcRenderer.invoke("connect-bridge", token),
+
+  // Sync workspace from server (pass ArrayBuffer from fetch)
+  syncWorkspace: (arrayBuffer) => ipcRenderer.invoke("sync-workspace", arrayBuffer),
+
+  // Start local OpenClaw
+  startLocalOpenClaw: () => ipcRenderer.invoke("start-local-openclaw"),
+
   // Notifications
   showNotification: ({ title, body }) =>
     ipcRenderer.invoke("show-notification", { title, body }),

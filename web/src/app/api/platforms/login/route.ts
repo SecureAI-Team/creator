@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { sendMessage } from "@/lib/openclaw";
+import { hasBridge } from "@/lib/bridge";
 
 /**
  * Platform Login API
@@ -20,13 +21,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "请指定平台" }, { status: 400 });
     }
 
-    // Send login command to user's OpenClaw instance
+    // Send login command to user's OpenClaw instance (local bridge or server)
     const reply = await sendMessage(
       session.user.id,
       `/login ${platform}`
     );
 
-    return NextResponse.json({ reply, message: "请在 VNC 窗口中完成登录" });
+    const useLocal = await hasBridge(session.user.id);
+    const message = useLocal
+      ? "请在本地浏览器窗口中完成登录"
+      : "请在 VNC 窗口中完成登录";
+
+    return NextResponse.json({ reply, message });
   } catch {
     return NextResponse.json(
       { error: "启动登录失败" },

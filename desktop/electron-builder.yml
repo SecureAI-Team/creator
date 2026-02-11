@@ -15,6 +15,10 @@ files:
   - "!dist"
   - "!node_modules/.cache"
 
+asarUnpack:
+  - "node_modules/openclaw/**"
+  - "node_modules/extract-zip/**"
+
 # ---- Windows ----
 win:
   target:

@@ -12,6 +12,15 @@ function VNCContent() {
   const [fullscreen, setFullscreen] = useState(false);
   const [vncPassword, setVncPassword] = useState<string | null>(null);
   const [pwdReady, setPwdReady] = useState(false);
+  const [hasBridge, setHasBridge] = useState<boolean | null>(null);
+
+  // Check if user has local bridge (no VNC needed)
+  useEffect(() => {
+    fetch("/api/agent")
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d: { hasBridge?: boolean }) => setHasBridge(!!d?.hasBridge))
+      .catch(() => setHasBridge(false));
+  }, []);
 
   // Fetch VNC password for auto-connect
   useEffect(() => {
@@ -146,7 +155,24 @@ function VNCContent() {
         </div>
       )}
 
+      {/* Local mode: no VNC needed */}
+      {hasBridge === true && (
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-6">
+          <h3 className="font-semibold text-emerald-800 mb-2">本地模式</h3>
+          <p className="text-emerald-700/90">
+            您正在使用本地 OpenClaw，平台登录时浏览器将在本地弹出，无需 VNC。
+          </p>
+          <a href={platform ? "/platforms" : "/tools"}>
+            <Button variant="outline" size="sm" className="mt-4 rounded-xl border-emerald-200 text-emerald-700">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              返回
+            </Button>
+          </a>
+        </div>
+      )}
+
       {/* VNC iframe - wait for password fetch so we can auto-inject */}
+      {hasBridge !== true && (
       <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden shadow-sm">
         <div
           className={`relative bg-gray-900 ${
@@ -170,6 +196,7 @@ function VNCContent() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

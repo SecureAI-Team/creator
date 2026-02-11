@@ -65,12 +65,24 @@ export default function PlatformsPage() {
   const handleLogin = async (key: string) => {
     setLoginLoading(key);
     try {
-      await fetch("/api/platforms/login", {
+      const agentRes = await fetch("/api/agent");
+      const agentData = agentRes.ok ? await agentRes.json() : {};
+      const hasBridge = !!agentData?.hasBridge;
+
+      const loginRes = await fetch("/api/platforms/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ platform: key }),
       });
-      window.open("/vnc?platform=" + key, "_blank", "width=1300,height=850");
+      const loginData = loginRes.ok ? await loginRes.json() : {};
+      const message = loginData?.message || "请完成登录";
+
+      if (hasBridge) {
+        // Local mode: browser opens on user's machine, no VNC needed
+        alert(message);
+      } else {
+        window.open("/vnc?platform=" + key, "_blank", "width=1300,height=850");
+      }
     } catch {
       // ignore
     }

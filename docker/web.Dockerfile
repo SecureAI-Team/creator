@@ -54,8 +54,13 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
+# Copy bridge server and its deps (ws for WebSocket)
+COPY --from=builder /app/bridge-server.js ./
+COPY --from=builder /app/node_modules/ws ./node_modules/ws
+COPY --from=builder /app/node_modules/jose ./node_modules/jose
+
 USER nextjs
 
-EXPOSE 3001
+EXPOSE 3001 3002
 
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "node bridge-server.js & exec node server.js"]
