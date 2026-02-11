@@ -13,6 +13,7 @@ function VNCContent() {
   const [vncPassword, setVncPassword] = useState<string | null>(null);
   const [pwdReady, setPwdReady] = useState(false);
 
+  // Fetch VNC password for auto-connect
   useEffect(() => {
     let cancelled = false;
     fetch("/api/vnc-password")
@@ -31,6 +32,16 @@ function VNCContent() {
     };
   }, []);
 
+  // Auto-trigger platform login when page loads with platform param (opens browser in VNC)
+  useEffect(() => {
+    if (!platform) return;
+    fetch("/api/platforms/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform }),
+    }).catch(() => {});
+  }, [platform]);
+
   const target = platform || tool || "unknown";
   const targetLabel = platform
     ? `平台登录: ${platform}`
@@ -38,8 +49,11 @@ function VNCContent() {
       ? `工具登录: ${tool}`
       : "远程浏览器";
 
-  // When user is logged in, include password in URL so noVNC auto-connects without manual input
-  const vncUrl = `/vnc/vnc.html?autoconnect=true&resize=scale&quality=6&target=${encodeURIComponent(target)}${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ""}`;
+  // noVNC: path for /vnc/ prefix; password in both query and hash (noVNC versions vary)
+  const baseParams = `autoconnect=true&resize=scale&path=/vnc/websockify&target=${encodeURIComponent(target)}`;
+  const vncUrl = vncPassword
+    ? `/vnc/vnc.html?${baseParams}&password=${encodeURIComponent(vncPassword)}#password=${encodeURIComponent(vncPassword)}`
+    : `/vnc/vnc.html?${baseParams}`;
 
   return (
     <div
@@ -116,6 +130,11 @@ function VNCContent() {
               <span className="text-sm font-medium text-blue-700">操作提示</span>
             </div>
             <ul className="text-sm text-blue-600/80 space-y-1 ml-6">
+              {platform && (
+                <li className="font-medium text-blue-700">
+                  已自动发起 {platform} 登录，远程桌面中会打开浏览器
+                </li>
+              )}
               <li>
                 1. 在下方远程浏览器中正常登录你的 {platform || tool} 账号
               </li>
