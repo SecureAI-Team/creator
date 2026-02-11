@@ -2,11 +2,24 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Menu, X, Sparkles } from "lucide-react";
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(
+      "https://api.github.com/repos/SecureAI-Team/creator/releases/latest",
+      { headers: { Accept: "application/vnd.github+json" } }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.tag_name) setLatestVersion(data.tag_name);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b border-gray-100">
@@ -46,9 +59,14 @@ export function Header() {
           </Link>
           <Link
             href="/download"
-            className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+            className="text-sm text-gray-500 hover:text-gray-900 transition-colors inline-flex items-center gap-1.5"
           >
             下载客户端
+            {latestVersion && (
+              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">
+                {latestVersion}
+              </span>
+            )}
           </Link>
         </nav>
 

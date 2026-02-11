@@ -21,16 +21,13 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: assets/icon.ico
-  artifactName: "creator-desktop-${version}-win-${arch}.${ext}"
+  icon: assets/icon.png
+  artifactName: "creator-desktop-${version}-win-x64.${ext}"
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
-  installerIcon: assets/icon.ico
-  uninstallerIcon: assets/icon.ico
-  installerHeaderIcon: assets/icon.ico
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: 创作助手
@@ -42,7 +39,7 @@ mac:
       arch:
         - x64
         - arm64
-  icon: assets/icon.icns
+  icon: assets/icon.png
   category: public.app-category.productivity
   artifactName: "creator-desktop-${version}-mac-${arch}.${ext}"
   entitlements: build/entitlements.mac.plist
@@ -65,7 +62,7 @@ linux:
         - x64
   icon: assets/icon.png
   category: Office
-  artifactName: "creator-desktop-${version}-linux-${arch}.${ext}"
+  artifactName: "creator-desktop-${version}-linux-x64.${ext}"
 
 # ---- Auto-update ----
 publish:

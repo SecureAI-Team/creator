@@ -14,6 +14,7 @@ import {
   ArrowRight,
   Apple,
   Package,
+  Loader2,
 } from "lucide-react";
 
 type OS = "windows" | "macos" | "linux" | "other";
@@ -27,17 +28,59 @@ function detectOS(): OS {
   return "other";
 }
 
-const GITHUB_RELEASES_URL =
-  "https://github.com/SecureAI-Team/creator/releases";
+const GITHUB_REPO = "SecureAI-Team/creator";
+const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
+
+interface ReleaseInfo {
+  version: string;
+  windowsUrl: string | null;
+  macosUrl: string | null;
+  extensionUrl: string | null;
+  htmlUrl: string;
+}
+
+async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+      { headers: { Accept: "application/vnd.github+json" } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const assets: { name: string; browser_download_url: string }[] =
+      data.assets || [];
+
+    return {
+      version: data.tag_name || data.name || "",
+      windowsUrl:
+        assets.find((a) => a.name.endsWith(".exe"))?.browser_download_url ??
+        null,
+      macosUrl:
+        assets.find((a) => a.name.endsWith(".dmg"))?.browser_download_url ??
+        null,
+      extensionUrl:
+        assets.find((a) => a.name.endsWith(".zip"))?.browser_download_url ??
+        null,
+      htmlUrl: data.html_url || GITHUB_RELEASES_URL,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default function DownloadPage() {
   const [os, setOs] = useState<OS>("other");
   const [pwaPrompt, setPwaPrompt] = useState<Event | null>(null);
+  const [release, setRelease] = useState<ReleaseInfo | null>(null);
+  const [loadingRelease, setLoadingRelease] = useState(true);
 
   useEffect(() => {
     setOs(detectOS());
+    fetchLatestRelease().then((r) => {
+      setRelease(r);
+      setLoadingRelease(false);
+    });
 
-    // Capture PWA install prompt
     const handler = (e: Event) => {
       e.preventDefault();
       setPwaPrompt(e);
@@ -52,8 +95,17 @@ export default function DownloadPage() {
     }
   };
 
+  const versionBadge = release?.version ? (
+    <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+      {release.version}
+    </span>
+  ) : null;
+
   return (
-    <div className="relative overflow-hidden bg-white" style={{ colorScheme: "light" }}>
+    <div
+      className="relative overflow-hidden bg-white"
+      style={{ colorScheme: "light" }}
+    >
       {/* Background decoration */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-gradient-to-br from-blue-50/80 via-indigo-50/40 to-purple-50/30 rounded-full blur-3xl -z-10" />
 
@@ -63,6 +115,7 @@ export default function DownloadPage() {
           <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-1 text-sm font-medium text-blue-700 mb-6">
             <Download className="h-3.5 w-3.5" />
             客户端下载
+            {versionBadge}
           </div>
           <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl mb-4">
             选择你喜欢的方式
@@ -114,53 +167,119 @@ export default function DownloadPage() {
             </ul>
 
             <div className="space-y-2">
-              <a
-                href={GITHUB_RELEASES_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              {/* Windows */}
+              {loadingRelease ? (
                 <Button
-                  className={`w-full justify-center gap-2 rounded-xl h-10 ${
-                    os === "windows"
-                      ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                      : ""
-                  }`}
-                  variant={os === "windows" ? "default" : "outline"}
+                  className="w-full justify-center gap-2 rounded-xl h-10"
+                  variant="outline"
+                  disabled
                 >
-                  <Package className="h-4 w-4" />
-                  Windows (.exe)
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  加载中...
                 </Button>
-              </a>
-              <a
-                href={GITHUB_RELEASES_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              ) : release?.windowsUrl ? (
+                <a href={release.windowsUrl}>
+                  <Button
+                    className={`w-full justify-center gap-2 rounded-xl h-10 ${
+                      os === "windows"
+                        ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                        : ""
+                    }`}
+                    variant={os === "windows" ? "default" : "outline"}
+                  >
+                    <Package className="h-4 w-4" />
+                    Windows (.exe)
+                    {release.version && (
+                      <span className="text-[10px] opacity-70">
+                        {release.version}
+                      </span>
+                    )}
+                  </Button>
+                </a>
+              ) : (
+                <a
+                  href={GITHUB_RELEASES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button
+                    className="w-full justify-center gap-2 rounded-xl h-10"
+                    variant="outline"
+                    disabled={!release}
+                  >
+                    <Package className="h-4 w-4" />
+                    Windows (.exe){" "}
+                    {!release && (
+                      <span className="text-[10px] text-gray-400">
+                        尚未发布
+                      </span>
+                    )}
+                  </Button>
+                </a>
+              )}
+
+              {/* macOS */}
+              {loadingRelease ? (
                 <Button
-                  className={`w-full justify-center gap-2 rounded-xl h-10 mt-2 ${
-                    os === "macos"
-                      ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                      : ""
-                  }`}
-                  variant={os === "macos" ? "default" : "outline"}
+                  className="w-full justify-center gap-2 rounded-xl h-10 mt-2"
+                  variant="outline"
+                  disabled
                 >
-                  <Apple className="h-4 w-4" />
-                  macOS (.dmg)
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  加载中...
                 </Button>
-              </a>
+              ) : release?.macosUrl ? (
+                <a href={release.macosUrl}>
+                  <Button
+                    className={`w-full justify-center gap-2 rounded-xl h-10 mt-2 ${
+                      os === "macos"
+                        ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                        : ""
+                    }`}
+                    variant={os === "macos" ? "default" : "outline"}
+                  >
+                    <Apple className="h-4 w-4" />
+                    macOS (.dmg)
+                    {release.version && (
+                      <span className="text-[10px] opacity-70">
+                        {release.version}
+                      </span>
+                    )}
+                  </Button>
+                </a>
+              ) : (
+                <a
+                  href={GITHUB_RELEASES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button
+                    className="w-full justify-center gap-2 rounded-xl h-10 mt-2"
+                    variant="outline"
+                    disabled={!release}
+                  >
+                    <Apple className="h-4 w-4" />
+                    macOS (.dmg){" "}
+                    {!release && (
+                      <span className="text-[10px] text-gray-400">
+                        尚未发布
+                      </span>
+                    )}
+                  </Button>
+                </a>
+              )}
             </div>
 
             <p className="text-xs text-gray-400 mt-3 text-center">
-              需要 Windows 10+ / macOS 12+ &middot; 从{" "}
+              需要 Windows 10+ / macOS 12+ &middot;{" "}
               <a
-                href={GITHUB_RELEASES_URL}
+                href={release?.htmlUrl || GITHUB_RELEASES_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-500 hover:underline"
               >
-                GitHub Releases
-              </a>{" "}
-              下载
+                所有版本
+              </a>
             </p>
           </div>
 
@@ -212,16 +331,40 @@ export default function DownloadPage() {
                 <Globe className="h-4 w-4" />
                 Chrome 商店（即将上线）
               </Button>
-              <a
-                href={GITHUB_RELEASES_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Button className="w-full justify-center gap-2 rounded-xl h-10 mt-2" variant="outline">
-                  <Download className="h-4 w-4" />
-                  下载 .zip 手动安装
+              {loadingRelease ? (
+                <Button
+                  className="w-full justify-center gap-2 rounded-xl h-10 mt-2"
+                  variant="outline"
+                  disabled
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  加载中...
                 </Button>
-              </a>
+              ) : release?.extensionUrl ? (
+                <a href={release.extensionUrl}>
+                  <Button className="w-full justify-center gap-2 rounded-xl h-10 mt-2" variant="outline">
+                    <Download className="h-4 w-4" />
+                    下载 .zip 手动安装
+                    {release.version && (
+                      <span className="text-[10px] opacity-50">
+                        {release.version}
+                      </span>
+                    )}
+                  </Button>
+                </a>
+              ) : (
+                <Button
+                  className="w-full justify-center gap-2 rounded-xl h-10 mt-2"
+                  variant="outline"
+                  disabled={!release}
+                >
+                  <Download className="h-4 w-4" />
+                  下载 .zip 手动安装{" "}
+                  {!release && (
+                    <span className="text-[10px] text-gray-400">尚未发布</span>
+                  )}
+                </Button>
+              )}
             </div>
 
             <details className="mt-4">
@@ -229,7 +372,7 @@ export default function DownloadPage() {
                 手动安装步骤 &rarr;
               </summary>
               <ol className="text-xs text-gray-500 mt-2 space-y-1.5 list-decimal list-inside bg-gray-50 rounded-xl p-3">
-                <li>从 GitHub Releases 下载 .zip 文件并解压</li>
+                <li>从上方下载 .zip 文件并解压</li>
                 <li>
                   打开 Chrome/Edge，进入{" "}
                   <code className="bg-gray-200 px-1 py-0.5 rounded text-[11px]">
@@ -335,7 +478,10 @@ export default function DownloadPage() {
                     ["手机使用", false, false, true],
                   ] as [string, boolean, boolean, boolean][]
                 ).map(([feature, desktop, ext, pwa], i) => (
-                  <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                  <tr
+                    key={i}
+                    className="hover:bg-gray-50/50 transition-colors"
+                  >
                     <td className="px-6 py-3 text-gray-700">{feature}</td>
                     <td className="text-center px-6 py-3">
                       {desktop ? (
