@@ -78,7 +78,14 @@ export default function PlatformsPage() {
       const message = loginData?.message || "请完成登录";
 
       if (hasBridge) {
-        // Local mode: browser opens on user's machine, no VNC needed
+        // Local mode: show message and open platform URL in system browser so user can log in
+        const platform = PLATFORMS.find((p) => p.key === key);
+        const platformUrl = platform?.url;
+        if (platformUrl) {
+          const api = (window as Window & { creatorDesktop?: { openExternal?: (url: string) => void } }).creatorDesktop;
+          if (api?.openExternal) api.openExternal(platformUrl);
+          else window.open(platformUrl, "_blank");
+        }
         alert(message);
       } else {
         window.open("/vnc?platform=" + key, "_blank", "width=1300,height=850");

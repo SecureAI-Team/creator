@@ -152,7 +152,7 @@ ipcMain.handle("sync-workspace", async (_event, arrayBuffer) => {
   }
 });
 
-// Start local OpenClaw
+// Start local OpenClaw (requires Node.js on PATH; packaged app may not have it)
 ipcMain.handle("start-local-openclaw", async () => {
   if (openclawProcess) return true;
 
@@ -167,13 +167,24 @@ ipcMain.handle("start-local-openclaw", async () => {
   if (!fs.existsSync(openclawPath)) return false;
 
   const nodeCmd = process.platform === "win32" ? "node.exe" : "node";
-  openclawProcess = spawn(nodeCmd, [openclawPath, "start", "--port", "3000"], {
-    cwd: workspaceDir,
-    env: { ...process.env, OPENCLAW_HOME: workspaceDir },
-    stdio: "inherit",
-  });
+  try {
+    openclawProcess = spawn(nodeCmd, [openclawPath, "start", "--port", "3000"], {
+      cwd: workspaceDir,
+      env: { ...process.env, OPENCLAW_HOME: workspaceDir },
+      stdio: "inherit",
+    });
+  } catch (err) {
+    console.error("[OpenClaw] spawn failed:", err.message);
+    return false;
+  }
 
-  openclawProcess.on("exit", () => { openclawProcess = null; });
+  openclawProcess.on("error", (err) => {
+    console.error("[OpenClaw] process error:", err.message);
+    openclawProcess = null;
+  });
+  openclawProcess.on("exit", (code) => {
+    openclawProcess = null;
+  });
   return true;
 });
 
