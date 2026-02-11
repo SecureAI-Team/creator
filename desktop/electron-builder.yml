@@ -42,8 +42,6 @@ mac:
   icon: assets/icon.png
   category: public.app-category.productivity
   artifactName: "creator-desktop-${version}-mac-${arch}.${ext}"
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
 
 dmg:
   contents:
