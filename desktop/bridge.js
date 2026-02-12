@@ -25,6 +25,10 @@ function createBridge(serverUrl, options = {}) {
     typeof options.localOpenClawPort === "function"
       ? options.localOpenClawPort() || 3000
       : options.localOpenClawPort || 3000;
+  const getGatewayToken = () =>
+    typeof options.localGatewayToken === "function"
+      ? options.localGatewayToken()
+      : options.localGatewayToken || null;
   const emit = (evt) => {
     try {
       if (typeof options.onTaskEvent === "function") {
@@ -110,10 +114,24 @@ function createBridge(serverUrl, options = {}) {
     const port = getPort();
 
     // ---- Pre-check: is OpenClaw reachable? ----
-    // If not, DON'T send ACK → server times out → falls back to VNC.
-    const portOpen = await probePort(port, 1200);
+    // Retry up to 5 times (total ~12s) to handle case where OpenClaw is still starting.
+    // If not reachable after retries, DON'T send ACK → server times out → falls back to VNC.
+    let portOpen = false;
+    const MAX_PROBE_RETRIES = 5;
+    const PROBE_INTERVAL_MS = 2000;
+    for (let attempt = 1; attempt <= MAX_PROBE_RETRIES; attempt++) {
+      portOpen = await probePort(port, 1500);
+      if (portOpen) {
+        if (attempt > 1) bLog.info(`[${requestId}] OpenClaw became reachable after ${attempt} probe(s)`);
+        break;
+      }
+      if (attempt < MAX_PROBE_RETRIES) {
+        bLog.debug(`[${requestId}] OpenClaw probe ${attempt}/${MAX_PROBE_RETRIES} failed, retrying in ${PROBE_INTERVAL_MS}ms...`);
+        await new Promise((r) => setTimeout(r, PROBE_INTERVAL_MS));
+      }
+    }
     if (!portOpen) {
-      bLog.warn(`[${requestId}] OpenClaw not reachable at :${port}, NOT sending ACK (will trigger VNC fallback)`);
+      bLog.warn(`[${requestId}] OpenClaw not reachable at :${port} after ${MAX_PROBE_RETRIES} retries, NOT sending ACK (will trigger VNC fallback)`);
       emit({ type: "ack", requestId, stage: "local_unavailable", message });
       // Send error response so bridge-server can clean up the pending request
       sendResponse(requestId, `错误: 本地引擎未运行 (port ${port} unreachable)`);
@@ -130,10 +148,17 @@ function createBridge(serverUrl, options = {}) {
         bLog.info(`[${requestId}] Login command detected, forwarding to OpenClaw at :${port}`);
       }
 
+      // Build headers with optional gateway token authentication
+      const headers = { "Content-Type": "application/json" };
+      const token = getGatewayToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       bLog.debug(`[${requestId}] POST http://127.0.0.1:${port}/api/chat`);
       const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ message }),
         signal: AbortSignal.timeout(60_000),
       });

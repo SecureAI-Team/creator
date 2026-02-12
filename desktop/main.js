@@ -37,6 +37,7 @@ let bridgeInstance = null;
 let openclawProcess = null;
 let openclawRestartTimer = null;
 let localOpenClawPort = 3000;
+let localGatewayToken = null;
 let keepLocalOpenClawAlive = false;
 let openclawStartedAt = 0;
 let openclawCrashCount = 0;
@@ -288,6 +289,56 @@ async function pickOpenClawPort(start = 3000, end = 3010) {
   return start;
 }
 
+/**
+ * Quick TCP probe to check if a port is open.
+ * Used to verify OpenClaw has started listening.
+ */
+function probePort(port, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const sock = net.createConnection({ port, host: "127.0.0.1" });
+    const timer = setTimeout(() => {
+      sock.destroy();
+      resolve(false);
+    }, timeoutMs);
+    sock.on("connect", () => {
+      clearTimeout(timer);
+      sock.destroy();
+      resolve(true);
+    });
+    sock.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Wait for OpenClaw to become reachable on its port.
+ * Polls every intervalMs, up to maxWaitMs total.
+ */
+async function waitForOpenClawReady(port, maxWaitMs = 15000, intervalMs = 1500) {
+  const deadline = Date.now() + maxWaitMs;
+  let attempt = 0;
+  while (Date.now() < deadline) {
+    attempt++;
+    if (await probePort(port, 1200)) {
+      log.info(`OpenClaw is reachable on port ${port} after ${attempt} probe(s)`);
+      return true;
+    }
+    // Check if the process died
+    if (!openclawProcess || openclawProcess.killed) {
+      log.warn("OpenClaw process exited while waiting for readiness");
+      return false;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining > 0) {
+      await new Promise((r) => setTimeout(r, Math.min(intervalMs, remaining)));
+    }
+  }
+  log.warn(`OpenClaw NOT reachable on port ${port} after ${maxWaitMs}ms`);
+  return false;
+}
+
 async function probeOpenClawApi(port, timeoutMs = 1500) {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/chat`, {
@@ -438,8 +489,9 @@ async function startLocalOpenClawInternal() {
   const openclawPath = getOpenClawPath();
   localOpenClawPort = await pickOpenClawPort(3000, 3010);
 
-  // Generate a local gateway token
-  const gatewayToken = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  // Generate a local gateway token (stored at module level for bridge access)
+  localGatewayToken = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const gatewayToken = localGatewayToken;
 
   const runtimeEnv = {
     ...process.env,
@@ -506,7 +558,15 @@ async function startLocalOpenClawInternal() {
   });
 
   log.info("OpenClaw process spawned, pid:", openclawProcess.pid);
-  return true;
+
+  // Wait for OpenClaw to actually start listening before declaring success
+  const ready = await waitForOpenClawReady(localOpenClawPort, 20000, 1500);
+  if (ready) {
+    log.info("OpenClaw is ready and accepting connections");
+  } else {
+    log.warn("OpenClaw spawned but did not become reachable within timeout");
+  }
+  return ready;
 }
 
 // ---- IPC Handlers ----
@@ -551,6 +611,7 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
   if (bridgeInstance) bridgeInstance.disconnect();
   bridgeInstance = createBridge(serverUrl, {
     localOpenClawPort: () => localOpenClawPort,
+    localGatewayToken: () => localGatewayToken,
     onTaskEvent: persistTaskEvent,
     logger: logger.createTaggedLogger("Bridge"),
   });
