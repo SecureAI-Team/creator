@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld("creatorDesktop", {
   startLocalOpenClaw: () => ipcRenderer.invoke("start-local-openclaw"),
   getLocalRuntimeStatus: () => ipcRenderer.invoke("get-local-runtime-status"),
   runLocalSelfCheck: () => ipcRenderer.invoke("run-local-self-check"),
+  restartOpenClaw: () => ipcRenderer.invoke("restart-openclaw"),
+  onOpenClawCrashLoop: (cb) => ipcRenderer.on("openclaw-crash-loop", (_e, info) => cb(info)),
 
   // Logs
   getLogs: (count) => ipcRenderer.invoke("get-logs", count),

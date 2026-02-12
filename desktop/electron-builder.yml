@@ -16,8 +16,7 @@ files:
   - "!node_modules/.cache"
 
 asarUnpack:
-  - "node_modules/openclaw/**"
-  - "node_modules/extract-zip/**"
+  - "node_modules/**"
 
 # ---- Windows ----
 win:

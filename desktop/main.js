@@ -40,6 +40,7 @@ let localOpenClawPort = 3000;
 let keepLocalOpenClawAlive = false;
 let openclawStartedAt = 0;
 let openclawCrashCount = 0;
+const MAX_OPENCLAW_CRASH_RESTARTS = 5; // Stop restarting after this many consecutive fast crashes
 
 const TASK_STATE_KEY = "localTaskState";
 const DEFAULT_TASK_STATE = {
@@ -127,12 +128,22 @@ function getWorkspaceDir() {
   return workspaceDir;
 }
 
+/**
+ * Convert an asar-internal path to its unpacked counterpart.
+ * Electron's require.resolve() returns paths inside app.asar, but the ESM
+ * loader in child processes (ELECTRON_RUN_AS_NODE) cannot read asar archives.
+ * Files listed in asarUnpack are extracted to app.asar.unpacked/ alongside app.asar.
+ */
+function toUnpackedPath(p) {
+  return p.replace(/([/\\])app\.asar([/\\])/, "$1app.asar.unpacked$2");
+}
+
 function getOpenClawPath() {
   try {
     const pkgPath = require.resolve("openclaw/package.json");
-    return path.join(path.dirname(pkgPath), "openclaw.mjs");
+    return toUnpackedPath(path.join(path.dirname(pkgPath), "openclaw.mjs"));
   } catch {
-    return path.join(__dirname, "node_modules", "openclaw", "openclaw.mjs");
+    return toUnpackedPath(path.join(__dirname, "node_modules", "openclaw", "openclaw.mjs"));
   }
 }
 
@@ -223,8 +234,11 @@ async function runLocalSelfCheck() {
     openclawHealthy,
     openclawPort: localOpenClawPort,
     openclawPortFree,
+    openclawCrashCount,
+    openclawCrashLimit: MAX_OPENCLAW_CRASH_RESTARTS,
     workspaceDir,
     workspaceWritable,
+    openclawPath,
     openclawPathExists: fs.existsSync(openclawPath),
     embeddedRuntime: process.execPath,
   };
@@ -232,11 +246,22 @@ async function runLocalSelfCheck() {
 
 function scheduleOpenClawRestart(delayMs = 2000) {
   if (!keepLocalOpenClawAlive) return;
+  if (openclawCrashCount >= MAX_OPENCLAW_CRASH_RESTARTS) {
+    log.error(`OpenClaw crashed ${openclawCrashCount} times consecutively. Giving up auto-restart. Manual intervention required.`);
+    // Notify the renderer so the user can see a diagnostic message
+    if (mainWindow) {
+      mainWindow.webContents.send("openclaw-crash-loop", {
+        crashCount: openclawCrashCount,
+        message: `本地引擎连续崩溃 ${openclawCrashCount} 次，已停止自动重启。请检查日志或联系支持。`,
+      });
+    }
+    return;
+  }
   if (openclawRestartTimer) clearTimeout(openclawRestartTimer);
   openclawRestartTimer = setTimeout(() => {
     openclawRestartTimer = null;
     startLocalOpenClawInternal().catch((err) => {
-      console.error("[OpenClaw] auto-restart failed:", err?.message || err);
+      log.error("[OpenClaw] auto-restart failed:", err?.message || err);
       scheduleOpenClawRestart(5000);
     });
   }, delayMs);
@@ -275,6 +300,12 @@ async function startLocalOpenClawInternal() {
   const runtimeCmd = process.execPath;
   log.info(`Starting OpenClaw: runtime=${runtimeCmd}, script=${openclawPath}, port=${localOpenClawPort}, cwd=${workspaceDir}`);
 
+  // Compute the unpacked node_modules path so ESM resolver can find dependencies
+  const unpackedNodeModules = toUnpackedPath(
+    path.join(path.dirname(require.resolve("openclaw/package.json")), "..")
+  );
+  log.info(`Unpacked node_modules: ${unpackedNodeModules}`);
+
   try {
     openclawProcess = spawn(runtimeCmd, [openclawPath, "start", "--port", String(localOpenClawPort)], {
       cwd: workspaceDir,
@@ -282,6 +313,8 @@ async function startLocalOpenClawInternal() {
         ...process.env,
         OPENCLAW_HOME: workspaceDir,
         ELECTRON_RUN_AS_NODE: "1",
+        // Help the ESM resolver find packages in the unpacked directory
+        NODE_PATH: unpackedNodeModules,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -317,15 +350,15 @@ async function startLocalOpenClawInternal() {
     if (uptimeMs < 10_000) {
       openclawCrashCount += 1;
     } else {
-      openclawCrashCount = 0;
+      openclawCrashCount = 0; // Ran long enough, reset counter
     }
-    if (openclawCrashCount >= 2) {
+    if (openclawCrashCount === 2) {
       log.warn("OpenClaw crashed twice in quick succession, resetting browser profiles");
       resetBrowserProfiles();
-      openclawCrashCount = 0;
+      // Don't reset crashCount — let it keep incrementing toward the max
     }
     openclawProcess = null;
-    scheduleOpenClawRestart(2000);
+    scheduleOpenClawRestart(2000 + openclawCrashCount * 1000); // Progressive backoff
   });
 
   log.info("OpenClaw process spawned, pid:", openclawProcess.pid);
@@ -407,12 +440,26 @@ ipcMain.handle("get-local-runtime-status", async () => {
     openclawProcessRunning: !!(openclawProcess && !openclawProcess.killed),
     localOpenClawPort,
     keepLocalOpenClawAlive,
+    openclawCrashCount,
+    openclawCrashLimit: MAX_OPENCLAW_CRASH_RESTARTS,
     taskState,
   };
 });
 
 ipcMain.handle("run-local-self-check", async () => {
   return runLocalSelfCheck();
+});
+
+// Manual retry after crash loop - resets counter and tries again
+ipcMain.handle("restart-openclaw", async () => {
+  log.info("Manual OpenClaw restart requested, resetting crash counter");
+  openclawCrashCount = 0;
+  keepLocalOpenClawAlive = true;
+  if (openclawProcess) {
+    try { openclawProcess.kill(); } catch {}
+    openclawProcess = null;
+  }
+  return startLocalOpenClawInternal();
 });
 
 // ---- Logs IPC ----
