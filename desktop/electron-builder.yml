@@ -10,13 +10,12 @@ directories:
   output: dist
   buildResources: assets
 
+asar: false
+
 files:
   - "**/*"
   - "!dist"
   - "!node_modules/.cache"
-
-asarUnpack:
-  - "node_modules/**"
 
 # ---- Windows ----
 win:

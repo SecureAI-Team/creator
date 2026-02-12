@@ -128,22 +128,12 @@ function getWorkspaceDir() {
   return workspaceDir;
 }
 
-/**
- * Convert an asar-internal path to its unpacked counterpart.
- * Electron's require.resolve() returns paths inside app.asar, but the ESM
- * loader in child processes (ELECTRON_RUN_AS_NODE) cannot read asar archives.
- * Files listed in asarUnpack are extracted to app.asar.unpacked/ alongside app.asar.
- */
-function toUnpackedPath(p) {
-  return p.replace(/([/\\])app\.asar([/\\])/, "$1app.asar.unpacked$2");
-}
-
 function getOpenClawPath() {
   try {
     const pkgPath = require.resolve("openclaw/package.json");
-    return toUnpackedPath(path.join(path.dirname(pkgPath), "openclaw.mjs"));
+    return path.join(path.dirname(pkgPath), "openclaw.mjs");
   } catch {
-    return toUnpackedPath(path.join(__dirname, "node_modules", "openclaw", "openclaw.mjs"));
+    return path.join(__dirname, "node_modules", "openclaw", "openclaw.mjs");
   }
 }
 
@@ -301,7 +291,7 @@ async function runLocalSelfCheck() {
     openclawPathExists: fs.existsSync(openclawPath),
     embeddedRuntime: process.execPath,
     embeddedNodeVersion: process.versions.node,
-    systemNode: findSystemNode() || "(not found)",
+    systemNode: findSystemNode() || "(not found - need >=22.12.0)",
   };
 }
 
@@ -359,18 +349,15 @@ async function startLocalOpenClawInternal() {
 
   localOpenClawPort = await pickOpenClawPort(3000, 3010);
 
-  // Compute the unpacked node_modules path so ESM resolver can find dependencies
-  const unpackedNodeModules = toUnpackedPath(
-    path.join(path.dirname(require.resolve("openclaw/package.json")), "..")
-  );
-  log.info(`Unpacked node_modules: ${unpackedNodeModules}`);
-
   // ---- Choose the right Node.js runtime ----
   // OpenClaw requires Node.js >= 22.12.0 but Electron 33 bundles Node 20.18.
   // We MUST use a system-installed Node.js that satisfies the requirement.
   const systemNode = findSystemNode();
   let runtimeCmd;
   let runtimeEnv;
+
+  // Generate a local gateway token so bridge.js can authenticate if needed
+  const gatewayToken = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
   if (systemNode) {
     // Use system Node.js — no ELECTRON_RUN_AS_NODE needed
@@ -379,34 +366,31 @@ async function startLocalOpenClawInternal() {
       ...process.env,
       OPENCLAW_HOME: workspaceDir,
       OPENCLAW_NO_RESPAWN: "1",           // Prevent OpenClaw from re-spawning itself
-      NODE_PATH: unpackedNodeModules,      // Help ESM resolver find packages
     };
     // Remove ELECTRON_RUN_AS_NODE so it doesn't interfere with system Node
     delete runtimeEnv.ELECTRON_RUN_AS_NODE;
     log.info(`Starting OpenClaw with system Node: runtime=${runtimeCmd}, script=${openclawPath}, port=${localOpenClawPort}, cwd=${workspaceDir}`);
   } else {
-    // Fallback: try Electron's embedded Node (will likely fail assertSupportedRuntime, but log clearly)
-    runtimeCmd = process.execPath;
-    runtimeEnv = {
-      ...process.env,
-      OPENCLAW_HOME: workspaceDir,
-      ELECTRON_RUN_AS_NODE: "1",
-      OPENCLAW_NO_RESPAWN: "1",
-      NODE_PATH: unpackedNodeModules,
-    };
-    log.warn("System Node.js >= 22.12.0 not found! Falling back to Electron embedded Node (v20.18). OpenClaw will likely fail.");
+    // No system Node.js >= 22.12.0 found — OpenClaw cannot run
+    log.warn("System Node.js >= 22.12.0 not found! OpenClaw requires Node 22+.");
     log.warn("Please install Node.js >= 22.12.0 from https://nodejs.org/en/download");
-    // Notify the renderer so the user sees a helpful message
     if (mainWindow) {
       mainWindow.webContents.send("openclaw-crash-loop", {
         crashCount: 0,
         message: "未找到 Node.js >= 22.12.0。本地引擎需要 Node.js 22 以上版本才能运行。\n请从 https://nodejs.org 安装 Node.js 22，然后重启客户端。",
       });
     }
+    return false;
   }
 
   try {
-    openclawProcess = spawn(runtimeCmd, [openclawPath, "start", "--port", String(localOpenClawPort)], {
+    openclawProcess = spawn(runtimeCmd, [
+      openclawPath,
+      "gateway",
+      "--port", String(localOpenClawPort),
+      "--allow-unconfigured",
+      "--token", gatewayToken,
+    ], {
       cwd: workspaceDir,
       env: runtimeEnv,
       stdio: ["ignore", "pipe", "pipe"],
