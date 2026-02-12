@@ -46,9 +46,9 @@ contextBridge.exposeInMainWorld("creatorDesktop", {
   platform: process.platform,
   version: (() => {
     try {
-      return require("./package.json").version || "1.0.0";
+      return require(require("path").join(__dirname, "package.json")).version || "unknown";
     } catch {
-      return "1.0.0";
+      return "unknown";
     }
   })(),
 });
