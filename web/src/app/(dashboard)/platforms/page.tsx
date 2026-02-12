@@ -35,12 +35,16 @@ export default function PlatformsPage() {
   const [loginLoading, setLoginLoading] = useState<string | null>(null);
   const [checkLoading, setCheckLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasBridge, setHasBridge] = useState(false);
 
   useEffect(() => {
     async function loadPlatforms() {
       try {
-        const res = await fetch("/api/data?days=1");
-        const data = await res.json();
+        const [dataRes, agentRes] = await Promise.all([
+          fetch("/api/data?days=1"),
+          fetch("/api/agent"),
+        ]);
+        const data = await dataRes.json();
         if (data.platforms) {
           const map: Record<string, PlatformState> = {};
           for (const p of data.platforms) {
@@ -51,6 +55,8 @@ export default function PlatformsPage() {
           }
           setConnections(map);
         }
+        const agentData = agentRes.ok ? await agentRes.json() : {};
+        setHasBridge(!!agentData?.hasBridge);
       } catch {
         // ignore
       }
@@ -78,15 +84,11 @@ export default function PlatformsPage() {
       const message = loginData?.message || "请完成登录";
 
       if (hasBridge) {
-        // Local mode: show message and open platform URL in system browser so user can log in
-        const platform = PLATFORMS.find((p) => p.key === key);
-        const platformUrl = platform?.url;
-        if (platformUrl) {
-          const api = (window as Window & { creatorDesktop?: { openExternal?: (url: string) => void } }).creatorDesktop;
-          if (api?.openExternal) api.openExternal(platformUrl);
-          else window.open(platformUrl, "_blank");
-        }
-        alert(message);
+        // Local mode: OpenClaw 会弹出其控制的浏览器，必须在该窗口中登录才能被识别为「已连接」
+        // 不再用系统浏览器（在那登录不会写入 OpenClaw，会一直显示未连接）
+        alert(
+          "请在 OpenClaw 弹出的浏览器窗口中完成登录，登录成功后平台会显示已连接。\n\n若未弹出浏览器窗口（如未安装 Node.js），请点击该平台下的「VNC 模式」在远程浏览器中登录。"
+        );
       } else {
         window.open("/vnc?platform=" + key, "_blank", "width=1300,height=850");
       }
@@ -94,6 +96,10 @@ export default function PlatformsPage() {
       // ignore
     }
     setLoginLoading(null);
+  };
+
+  const openVnc = (key: string) => {
+    window.open("/vnc?platform=" + key, "_blank", "width=1300,height=850");
   };
 
   const handleCheck = async (key: string) => {
@@ -200,15 +206,27 @@ export default function PlatformsPage() {
                     </a>
                   </>
                 ) : (
-                  <Button
-                    size="sm"
-                    className="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
-                    onClick={() => handleLogin(platform.key)}
-                    disabled={loginLoading === platform.key}
-                  >
-                    <MonitorPlay className="h-3.5 w-3.5 mr-1.5" />
-                    {loginLoading === platform.key ? "正在打开..." : "登录"}
-                  </Button>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      size="sm"
+                      className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
+                      onClick={() => handleLogin(platform.key)}
+                      disabled={loginLoading === platform.key}
+                    >
+                      <MonitorPlay className="h-3.5 w-3.5 mr-1.5" />
+                      {loginLoading === platform.key ? "正在打开..." : "登录"}
+                    </Button>
+                    {hasBridge && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50 text-xs"
+                        onClick={() => openVnc(platform.key)}
+                      >
+                        VNC 模式（未弹出窗口时用）
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
