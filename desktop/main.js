@@ -398,6 +398,12 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
   log.info(`connect-bridge: serverUrl=${serverUrl}, useLocal=${useLocal}, hasToken=${!!token}`);
   if (!serverUrl || !useLocal || !token) return false;
 
+  // If bridge is already connected, skip reconnect to avoid kick-loop
+  if (bridgeInstance && bridgeInstance.isConnected && bridgeInstance.isConnected()) {
+    log.info("Bridge already connected, skipping reconnect");
+    return true;
+  }
+
   if (bridgeInstance) bridgeInstance.disconnect();
   bridgeInstance = createBridge(serverUrl, {
     localOpenClawPort: () => localOpenClawPort,

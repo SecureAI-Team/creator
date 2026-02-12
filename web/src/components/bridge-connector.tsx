@@ -44,6 +44,8 @@ export function BridgeConnector() {
   const connectingRef = useRef(false);
   const retryCountRef = useRef(0);
   const mountedRef = useRef(true);
+  const lastConnectedAtRef = useRef(0); // Timestamp of last successful connect
+  const RECONNECT_COOLDOWN = 30_000; // Don't reconnect within 30s of a successful connect
 
   // Detect desktop environment early
   const isDesktop =
@@ -62,6 +64,14 @@ export function BridgeConnector() {
       console.log(LOG_PREFIX, "Already connecting, skipping");
       return false;
     }
+
+    // If we connected recently, don't reconnect (desktop-side handles it)
+    const sinceLastConnect = Date.now() - lastConnectedAtRef.current;
+    if (sinceLastConnect < RECONNECT_COOLDOWN && lastConnectedAtRef.current > 0) {
+      console.log(LOG_PREFIX, `Skipping connect: last succeeded ${Math.round(sinceLastConnect / 1000)}s ago`);
+      return true; // Treat as success to stop retries
+    }
+
     connectingRef.current = true;
     setBridgeStatus("connecting");
 
@@ -107,6 +117,7 @@ export function BridgeConnector() {
       console.log(LOG_PREFIX, "Bridge connected successfully!");
       setBridgeStatus("connected");
       retryCountRef.current = 0;
+      lastConnectedAtRef.current = Date.now();
 
       // Step 4: Self-check and start OpenClaw
       if (api.runLocalSelfCheck) {
@@ -218,7 +229,7 @@ export function BridgeConnector() {
     };
   }, [connectWithRetry]);
 
-  // ---- Poll hasBridge & auto-reconnect if dropped ----
+  // ---- Poll hasBridge (status check only, no reconnect from here) ----
   useEffect(() => {
     let active = true;
 
@@ -229,7 +240,19 @@ export function BridgeConnector() {
         const connected = !!data?.hasBridge;
         if (active) setHasBridge(connected);
 
-        // If we're in desktop mode and bridge dropped, try reconnecting
+        // If we recently connected successfully, trust desktop-side reconnect
+        const sinceLastConnect = Date.now() - lastConnectedAtRef.current;
+        if (sinceLastConnect < RECONNECT_COOLDOWN) {
+          if (!connected) {
+            console.log(
+              LOG_PREFIX,
+              `hasBridge=false but within cooldown (${Math.round(sinceLastConnect / 1000)}s ago). Desktop-side will handle reconnect.`
+            );
+          }
+          return;
+        }
+
+        // Only reconnect if bridge is genuinely down and we're not already trying
         if (
           !connected &&
           isDesktop &&
@@ -237,8 +260,8 @@ export function BridgeConnector() {
           !connectingRef.current &&
           active
         ) {
-          console.log(LOG_PREFIX, "hasBridge=false, attempting reconnect...");
-          retryCountRef.current = 0; // Reset retry counter for poll-driven reconnect
+          console.log(LOG_PREFIX, "hasBridge=false after cooldown, attempting reconnect...");
+          retryCountRef.current = 0;
           connectWithRetry();
         }
       } catch {
