@@ -468,6 +468,9 @@ ipcMain.handle("restart-openclaw", async () => {
   return startLocalOpenClawInternal();
 });
 
+// ---- App version IPC ----
+ipcMain.handle("get-app-version", () => app.getVersion());
+
 // ---- Logs IPC ----
 ipcMain.handle("get-logs", async (_event, count) => {
   return logger.getLogs(typeof count === "number" ? count : 200);

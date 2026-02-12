@@ -17,8 +17,8 @@ declare global {
         openclawCrashLimit?: number;
       }>;
       getConfig?: () => Promise<{ useLocalOpenClaw?: boolean }>;
+      getAppVersion?: () => Promise<string>;
       onOpenClawCrashLoop?: (cb: (info: { crashCount: number; message: string }) => void) => void;
-      version?: string;
       platform?: string;
     };
   }
@@ -204,9 +204,14 @@ export function BridgeConnector() {
     mountedRef.current = true;
     const api = window.creatorDesktop;
 
-    if (api?.version) {
-      setDesktopVersion(api.version);
-      console.log(LOG_PREFIX, "Desktop version:", api.version);
+    // Get version from main process (async IPC, most reliable in asar)
+    if (api?.getAppVersion) {
+      api.getAppVersion().then((v) => {
+        if (v) {
+          setDesktopVersion(v);
+          console.log(LOG_PREFIX, "Desktop version:", v);
+        }
+      }).catch(() => {});
     }
 
     if (api?.onOpenClawCrashLoop) {

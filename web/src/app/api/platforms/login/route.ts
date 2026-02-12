@@ -11,6 +11,9 @@ const loginInFlight = new Map<string, number>();
  * Platform Login API
  *
  * POST /api/platforms/login - Trigger browser login for a platform
+ *
+ * Never returns 500 for login. If all automation paths fail,
+ * falls back to VNC so the user can login manually.
  */
 
 export async function POST(request: NextRequest) {
@@ -26,7 +29,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Ensure user workspace exists before login (so OpenClaw/VNC has workspace)
-    ensureUserWorkspaceExists(session.user.id);
+    try {
+      ensureUserWorkspaceExists(session.user.id);
+    } catch (e) {
+      console.warn("[Login] ensureUserWorkspaceExists error:", e);
+    }
 
     const command = `/login ${platform}`;
     const dedupeKey = `${session.user.id}:${platform}`;
@@ -41,39 +48,57 @@ export async function POST(request: NextRequest) {
       });
     }
     loginInFlight.set(dedupeKey, now);
-    const useLocal = !forceVnc && await hasBridge(session.user.id);
 
+    // ---- Step 1: Try local bridge (desktop client) ----
+    const useLocal = !forceVnc && await hasBridge(session.user.id);
     if (useLocal) {
-      // Local-first: require quick ACK from desktop bridge.
-      // If no ACK, fallback to server OpenClaw (VNC path) automatically.
-      const ack = await sendViaBridgeAck(session.user.id, command, 3_000);
-      if (ack.ok) {
-        return NextResponse.json({
-          mode: "local",
-          fallbackToVnc: false,
-          stage: ack.stage || "received",
-          message: "本地客户端已接收登录指令，请在本地弹出的浏览器中完成登录",
-        });
+      try {
+        const ack = await sendViaBridgeAck(session.user.id, command, 3_000);
+        if (ack.ok) {
+          return NextResponse.json({
+            mode: "local",
+            fallbackToVnc: false,
+            stage: ack.stage || "received",
+            message: "本地客户端已接收登录指令，请在本地弹出的浏览器中完成登录",
+          });
+        }
+        console.warn("[Login] Bridge ACK failed:", ack.error);
+      } catch (e) {
+        console.warn("[Login] Bridge ACK exception:", e);
       }
     }
 
-    // Fallback path: trigger server-side OpenClaw for VNC login.
-    const reply = await sendMessageServerOnly(session.user.id, command);
+    // ---- Step 2: Fallback to server-side OpenClaw (VNC) ----
+    try {
+      const reply = await sendMessageServerOnly(session.user.id, command);
+      return NextResponse.json({
+        mode: "vnc",
+        fallbackToVnc: true,
+        reply,
+        message: "本地执行未确认，已自动切换到 VNC 备用方案",
+      });
+    } catch (e) {
+      console.warn("[Login] Server OpenClaw also failed:", e);
+    }
+
+    // ---- Step 3: Both failed — still return VNC fallback (user can login manually) ----
     return NextResponse.json({
       mode: "vnc",
       fallbackToVnc: true,
-      reply,
-      message: "本地执行未确认，已自动切换到 VNC 备用方案",
+      reply: "",
+      message: "自动登录暂不可用，请在 VNC 窗口中手动登录",
     });
-  } catch {
-    return NextResponse.json(
-      { error: "启动登录失败" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("[Login] Unexpected error:", err);
+    // Even on unexpected error, return VNC fallback instead of 500
+    return NextResponse.json({
+      mode: "vnc",
+      fallbackToVnc: true,
+      reply: "",
+      message: "登录服务异常，请在 VNC 窗口中手动登录",
+    });
   } finally {
-    // Release dedupe lock after short window; user can retry if needed.
     setTimeout(() => {
-      // keep small memory usage and avoid unbounded map growth
       for (const [k, ts] of loginInFlight.entries()) {
         if (Date.now() - ts > LOGIN_DEDUPE_WINDOW_MS) {
           loginInFlight.delete(k);

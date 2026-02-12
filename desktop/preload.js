@@ -42,13 +42,9 @@ contextBridge.exposeInMainWorld("creatorDesktop", {
   // External links
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
 
+  // App version (async, from main process - most reliable in asar)
+  getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+
   // Platform info
   platform: process.platform,
-  version: (() => {
-    try {
-      return require(require("path").join(__dirname, "package.json")).version || "unknown";
-    } catch {
-      return "unknown";
-    }
-  })(),
 });
