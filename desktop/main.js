@@ -245,11 +245,13 @@ async function ensureOpenClawInstalled(systemNode) {
 
   try {
     // Use shell: true via execSync so that .cmd files and paths with spaces work on Windows
-    const cmd = `npm install openclaw@${OPENCLAW_VERSION} --no-audit --no-fund`;
+    // Use China npm mirror for faster downloads
+    const registry = "--registry=https://registry.npmmirror.com";
+    const cmd = `npm install openclaw@${OPENCLAW_VERSION} ${registry} --no-audit --no-fund`;
     log.info(`Running: ${cmd} (cwd: ${workspaceDir})`);
     const result = execSync(cmd, {
       cwd: workspaceDir,
-      timeout: 300_000, // 5 minutes max
+      timeout: 600_000, // 10 minutes max
       encoding: "utf-8",
       env: { ...process.env, NODE_ENV: "production" },
       windowsHide: true,
