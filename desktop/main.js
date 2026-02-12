@@ -234,10 +234,8 @@ async function ensureOpenClawInstalled(systemNode) {
   }
 
   // Find npm alongside system node
-  const { execFileSync } = require("child_process");
-  const nodeDir = path.dirname(systemNode);
+  const { execSync } = require("child_process");
   const isWin = process.platform === "win32";
-  const npmCmd = isWin ? path.join(nodeDir, "npm.cmd") : path.join(nodeDir, "npm");
 
   // Create a minimal package.json in workspace if it doesn't exist
   const wsPkgJson = path.join(workspaceDir, "package.json");
@@ -246,7 +244,10 @@ async function ensureOpenClawInstalled(systemNode) {
   }
 
   try {
-    const result = execFileSync(npmCmd, ["install", `openclaw@${OPENCLAW_VERSION}`, "--no-audit", "--no-fund"], {
+    // Use shell: true via execSync so that .cmd files and paths with spaces work on Windows
+    const cmd = `npm install openclaw@${OPENCLAW_VERSION} --no-audit --no-fund`;
+    log.info(`Running: ${cmd} (cwd: ${workspaceDir})`);
+    const result = execSync(cmd, {
       cwd: workspaceDir,
       timeout: 300_000, // 5 minutes max
       encoding: "utf-8",
@@ -256,7 +257,7 @@ async function ensureOpenClawInstalled(systemNode) {
     log.info("npm install output:", result.trim().slice(0, 500));
     return fs.existsSync(openclawPath);
   } catch (err) {
-    log.error("Failed to install openclaw:", err?.message || err);
+    log.error("Failed to install openclaw:", err?.stderr?.slice(0, 500) || err?.message || err);
     if (mainWindow) {
       mainWindow.webContents.send("openclaw-crash-loop", {
         crashCount: 0,
