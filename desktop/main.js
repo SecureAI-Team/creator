@@ -147,6 +147,65 @@ function getOpenClawPath() {
   }
 }
 
+/**
+ * Locate system Node.js binary (>= 22.12.0) for running OpenClaw.
+ * Electron 33 bundles Node 20.18 but OpenClaw requires >=22.12.0,
+ * so we MUST use a separately-installed Node.js.
+ */
+function findSystemNode() {
+  const { execFileSync } = require("child_process");
+  const isWin = process.platform === "win32";
+
+  // 1. Try common well-known locations first (fast)
+  const candidates = isWin
+    ? [
+        path.join(process.env.ProgramFiles || "C:\\Program Files", "nodejs", "node.exe"),
+        path.join(process.env.LOCALAPPDATA || "", "fnm_multishells", "node.exe"),
+      ]
+    : ["/usr/local/bin/node", "/usr/bin/node"];
+
+  // 2. Also try to resolve from PATH using `where` / `which`
+  try {
+    const cmd = isWin ? "where" : "which";
+    const result = execFileSync(cmd, ["node"], {
+      timeout: 5000,
+      encoding: "utf-8",
+      env: process.env,
+      windowsHide: true,
+    }).trim();
+    // `where` on Windows may return multiple lines; take the first
+    const lines = result.split(/\r?\n/).filter(Boolean);
+    for (const l of lines) {
+      if (!candidates.includes(l)) candidates.unshift(l); // prioritise PATH result
+    }
+  } catch {
+    // ignore - we'll try candidates directly
+  }
+
+  // 3. Check each candidate version
+  for (const nodePath of candidates) {
+    if (!nodePath || !fs.existsSync(nodePath)) continue;
+    try {
+      const ver = execFileSync(nodePath, ["--version"], {
+        timeout: 5000,
+        encoding: "utf-8",
+        windowsHide: true,
+      }).trim(); // e.g. "v22.13.1"
+      const match = ver.match(/^v(\d+)\.(\d+)\.(\d+)/);
+      if (!match) continue;
+      const [, major, minor] = match.map(Number);
+      if (major > 22 || (major === 22 && minor >= 12)) {
+        log.info(`Found system Node ${ver} at ${nodePath}`);
+        return nodePath;
+      }
+      log.info(`Skipping Node ${ver} at ${nodePath} (need >=22.12.0)`);
+    } catch {
+      // Can't run this candidate, skip
+    }
+  }
+  return null; // Not found
+}
+
 function isPortAvailable(port) {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -241,6 +300,8 @@ async function runLocalSelfCheck() {
     openclawPath,
     openclawPathExists: fs.existsSync(openclawPath),
     embeddedRuntime: process.execPath,
+    embeddedNodeVersion: process.versions.node,
+    systemNode: findSystemNode() || "(not found)",
   };
 }
 
@@ -297,8 +358,6 @@ async function startLocalOpenClawInternal() {
   }
 
   localOpenClawPort = await pickOpenClawPort(3000, 3010);
-  const runtimeCmd = process.execPath;
-  log.info(`Starting OpenClaw: runtime=${runtimeCmd}, script=${openclawPath}, port=${localOpenClawPort}, cwd=${workspaceDir}`);
 
   // Compute the unpacked node_modules path so ESM resolver can find dependencies
   const unpackedNodeModules = toUnpackedPath(
@@ -306,16 +365,50 @@ async function startLocalOpenClawInternal() {
   );
   log.info(`Unpacked node_modules: ${unpackedNodeModules}`);
 
+  // ---- Choose the right Node.js runtime ----
+  // OpenClaw requires Node.js >= 22.12.0 but Electron 33 bundles Node 20.18.
+  // We MUST use a system-installed Node.js that satisfies the requirement.
+  const systemNode = findSystemNode();
+  let runtimeCmd;
+  let runtimeEnv;
+
+  if (systemNode) {
+    // Use system Node.js — no ELECTRON_RUN_AS_NODE needed
+    runtimeCmd = systemNode;
+    runtimeEnv = {
+      ...process.env,
+      OPENCLAW_HOME: workspaceDir,
+      OPENCLAW_NO_RESPAWN: "1",           // Prevent OpenClaw from re-spawning itself
+      NODE_PATH: unpackedNodeModules,      // Help ESM resolver find packages
+    };
+    // Remove ELECTRON_RUN_AS_NODE so it doesn't interfere with system Node
+    delete runtimeEnv.ELECTRON_RUN_AS_NODE;
+    log.info(`Starting OpenClaw with system Node: runtime=${runtimeCmd}, script=${openclawPath}, port=${localOpenClawPort}, cwd=${workspaceDir}`);
+  } else {
+    // Fallback: try Electron's embedded Node (will likely fail assertSupportedRuntime, but log clearly)
+    runtimeCmd = process.execPath;
+    runtimeEnv = {
+      ...process.env,
+      OPENCLAW_HOME: workspaceDir,
+      ELECTRON_RUN_AS_NODE: "1",
+      OPENCLAW_NO_RESPAWN: "1",
+      NODE_PATH: unpackedNodeModules,
+    };
+    log.warn("System Node.js >= 22.12.0 not found! Falling back to Electron embedded Node (v20.18). OpenClaw will likely fail.");
+    log.warn("Please install Node.js >= 22.12.0 from https://nodejs.org/en/download");
+    // Notify the renderer so the user sees a helpful message
+    if (mainWindow) {
+      mainWindow.webContents.send("openclaw-crash-loop", {
+        crashCount: 0,
+        message: "未找到 Node.js >= 22.12.0。本地引擎需要 Node.js 22 以上版本才能运行。\n请从 https://nodejs.org 安装 Node.js 22，然后重启客户端。",
+      });
+    }
+  }
+
   try {
     openclawProcess = spawn(runtimeCmd, [openclawPath, "start", "--port", String(localOpenClawPort)], {
       cwd: workspaceDir,
-      env: {
-        ...process.env,
-        OPENCLAW_HOME: workspaceDir,
-        ELECTRON_RUN_AS_NODE: "1",
-        // Help the ESM resolver find packages in the unpacked directory
-        NODE_PATH: unpackedNodeModules,
-      },
+      env: runtimeEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
     openclawStartedAt = Date.now();
