@@ -23,6 +23,16 @@ contextBridge.exposeInMainWorld("creatorDesktop", {
   getLocalRuntimeStatus: () => ipcRenderer.invoke("get-local-runtime-status"),
   runLocalSelfCheck: () => ipcRenderer.invoke("run-local-self-check"),
 
+  // Logs
+  getLogs: (count) => ipcRenderer.invoke("get-logs", count),
+  getLogFilePath: () => ipcRenderer.invoke("get-log-file-path"),
+  openLogFolder: () => ipcRenderer.invoke("open-log-folder"),
+
+  // Auto-update
+  checkForUpdate: () => ipcRenderer.invoke("check-for-update"),
+  onUpdateAvailable: (cb) => ipcRenderer.on("update-available", (_e, info) => cb(info)),
+  onUpdateDownloaded: (cb) => ipcRenderer.on("update-downloaded", (_e, info) => cb(info)),
+
   // Notifications
   showNotification: ({ title, body }) =>
     ipcRenderer.invoke("show-notification", { title, body }),

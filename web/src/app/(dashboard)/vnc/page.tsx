@@ -59,11 +59,12 @@ function VNCContent() {
       ? `工具登录: ${tool}`
       : "远程浏览器";
 
-  // noVNC: path for /vnc/ prefix; password in both query and hash (noVNC versions vary)
-  const baseParams = `autoconnect=true&resize=scale&path=/vnc/websockify&target=${encodeURIComponent(target)}`;
+  // noVNC: use vnc_lite.html (lightweight embed page, avoids ui.js settings crash).
+  // vnc_lite.html supports: autoconnect, resize, path, password, host, port, encrypt, logging.
+  const baseParams = `autoconnect=true&resize=scale&path=/vnc/websockify&logging=warn`;
   const vncUrl = vncPassword
-    ? `/vnc/vnc.html?${baseParams}&password=${encodeURIComponent(vncPassword)}#password=${encodeURIComponent(vncPassword)}`
-    : `/vnc/vnc.html?${baseParams}`;
+    ? `/vnc/vnc_lite.html?${baseParams}&password=${encodeURIComponent(vncPassword)}`
+    : `/vnc/vnc_lite.html?${baseParams}`;
 
   return (
     <div

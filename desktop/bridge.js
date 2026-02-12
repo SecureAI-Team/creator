@@ -7,7 +7,7 @@ const WebSocket = require("ws");
 
 /**
  * @param {string} serverUrl - Base URL (e.g. https://example.com)
- * @param {{ localOpenClawPort?: number, onTaskEvent?: (evt: any) => void }} options
+ * @param {{ localOpenClawPort?: number|Function, onTaskEvent?: (evt: any) => void, logger?: any }} options
  */
 function createBridge(serverUrl, options = {}) {
   const base = serverUrl.replace(/\/+$/, "");
@@ -15,6 +15,7 @@ function createBridge(serverUrl, options = {}) {
     ? base.replace("https://", "wss://")
     : base.replace("http://", "ws://");
   const url = `${wsUrl}/api/bridge/ws`;
+  const bLog = options.logger || { info() {}, warn() {}, error() {}, debug() {} };
   const getPort = () =>
     typeof options.localOpenClawPort === "function"
       ? options.localOpenClawPort() || 3000
@@ -39,42 +40,51 @@ function createBridge(serverUrl, options = {}) {
     lastToken = token;
 
     const withToken = `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+    bLog.info("Connecting to bridge:", url);
     ws = new WebSocket(withToken);
 
     ws.on("message", (data) => {
       try {
         const msg = JSON.parse(data.toString());
+        bLog.debug("WS message:", msg.type, msg.requestId || "");
         if (msg.type === "agent" && msg.requestId) {
           handleAgentMessage(msg);
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        bLog.warn("WS message parse error:", err?.message);
       }
     });
 
-    ws.on("close", () => {
+    ws.on("close", (code, reason) => {
+      bLog.warn(`WS closed: code=${code}, reason=${reason || "none"}`);
       ws = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(() => connect(lastToken), RECONNECT_DELAY);
     });
 
-    ws.on("error", () => {
-      // Reconnect on next close
+    ws.on("error", (err) => {
+      bLog.error("WS error:", err?.message || err);
     });
 
     return new Promise((resolve) => {
-      ws.once("open", () => resolve(true));
+      ws.once("open", () => {
+        bLog.info("WS connected");
+        resolve(true);
+      });
       ws.once("close", () => resolve(false));
     });
   }
 
   async function handleAgentMessage(msg) {
     const { message, requestId } = msg;
+    bLog.info(`[${requestId}] Agent message: ${message}`);
     sendAck(requestId, "received");
     emit({ type: "ack", requestId, stage: "received", message });
     try {
       const isLogin = typeof message === "string" && message.startsWith("/login ");
+      const port = getPort();
       if (isLogin) {
+        bLog.info(`[${requestId}] Login command detected, forwarding to OpenClaw at :${port}`);
         sendAck(requestId, "browser_opened");
         emit({ type: "ack", requestId, stage: "browser_opened", message });
       } else {
@@ -82,7 +92,8 @@ function createBridge(serverUrl, options = {}) {
         emit({ type: "ack", requestId, stage: "local_request_started", message });
       }
 
-      const res = await fetch(`http://127.0.0.1:${getPort()}/api/chat`, {
+      bLog.debug(`[${requestId}] POST http://127.0.0.1:${port}/api/chat`);
+      const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
@@ -90,6 +101,7 @@ function createBridge(serverUrl, options = {}) {
       });
       const data = await res.json();
       const reply = data.reply || data.message || "";
+      bLog.info(`[${requestId}] OpenClaw reply (${res.status}): ${reply.slice(0, 200)}`);
       if (isLogin) {
         sendAck(requestId, "login_page_loaded");
         emit({ type: "ack", requestId, stage: "login_page_loaded", message });
@@ -102,6 +114,7 @@ function createBridge(serverUrl, options = {}) {
       emit({ type: "response", requestId, ok: true, message, reply });
       sendResponse(requestId, reply);
     } catch (err) {
+      bLog.error(`[${requestId}] Error: ${err.message}`);
       sendAck(requestId, "local_error");
       emit({ type: "ack", requestId, stage: "local_error", message });
       emit({ type: "response", requestId, ok: false, message, error: err.message });

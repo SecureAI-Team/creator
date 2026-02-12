@@ -3,7 +3,7 @@
 // Lightweight shell that loads the SaaS web dashboard with native features
 // =============================================================================
 
-const { app, BrowserWindow, shell, ipcMain, Notification, Menu } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, Notification, Menu, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
@@ -12,6 +12,15 @@ const Store = require("electron-store");
 const { createTray } = require("./tray");
 const { createBridge } = require("./bridge");
 const extract = require("extract-zip");
+const logger = require("./logger");
+const { autoUpdater } = require("electron-updater");
+
+// ---- Logger init (must be before first log call) ----
+// app.getPath is available after 'ready' but Store already uses userData;
+// electron-store picks the path early so we can too.
+const userDataPath = app.getPath("userData");
+logger.init(userDataPath);
+const log = logger.createTaggedLogger("Main");
 
 const store = new Store({
   defaults: {
@@ -66,6 +75,7 @@ function createWindow() {
 
   // Show when ready to prevent flash
   mainWindow.once("ready-to-show", () => {
+    log.info("Window ready-to-show");
     mainWindow.show();
   });
 
@@ -90,15 +100,17 @@ function createWindow() {
 function loadApp() {
   const serverUrl = store.get("serverUrl");
   if (serverUrl) {
-    // Load /overview so user lands on dashboard (redirects to /login if not authenticated)
     const target = serverUrl.replace(/\/+$/, "") + "/overview";
-    mainWindow.loadURL(target).catch(() => {
-      // Fallback to root if /overview fails
-      mainWindow.loadURL(serverUrl).catch(() => {
+    log.info("Loading server URL:", target);
+    mainWindow.loadURL(target).catch((err) => {
+      log.warn("Failed to load overview, trying root:", err?.message);
+      mainWindow.loadURL(serverUrl).catch((err2) => {
+        log.error("Failed to load server root, showing setup:", err2?.message);
         mainWindow.loadFile(path.join(__dirname, "setup.html"));
       });
     });
   } else {
+    log.info("No server URL configured, showing setup page");
     mainWindow.loadFile(path.join(__dirname, "setup.html"));
   }
 }
@@ -247,14 +259,21 @@ function resetBrowserProfiles() {
 }
 
 async function startLocalOpenClawInternal() {
-  if (openclawProcess) return true;
+  if (openclawProcess) {
+    log.info("OpenClaw already running, skipping start");
+    return true;
+  }
 
   const workspaceDir = getWorkspaceDir();
   const openclawPath = getOpenClawPath();
-  if (!fs.existsSync(openclawPath)) return false;
+  if (!fs.existsSync(openclawPath)) {
+    log.error("OpenClaw binary not found:", openclawPath);
+    return false;
+  }
 
   localOpenClawPort = await pickOpenClawPort(3000, 3010);
   const runtimeCmd = process.execPath;
+  log.info(`Starting OpenClaw: runtime=${runtimeCmd}, script=${openclawPath}, port=${localOpenClawPort}, cwd=${workspaceDir}`);
 
   try {
     openclawProcess = spawn(runtimeCmd, [openclawPath, "start", "--port", String(localOpenClawPort)], {
@@ -264,35 +283,52 @@ async function startLocalOpenClawInternal() {
         OPENCLAW_HOME: workspaceDir,
         ELECTRON_RUN_AS_NODE: "1",
       },
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
     });
     openclawStartedAt = Date.now();
   } catch (err) {
-    console.error("[OpenClaw] spawn failed:", err.message);
+    log.error("OpenClaw spawn failed:", err.message);
     openclawProcess = null;
     return false;
   }
 
+  // Capture stdout / stderr into logs
+  if (openclawProcess.stdout) {
+    openclawProcess.stdout.on("data", (chunk) => {
+      const lines = chunk.toString().split("\n").filter(Boolean);
+      lines.forEach((l) => log.info("[OC:stdout]", l));
+    });
+  }
+  if (openclawProcess.stderr) {
+    openclawProcess.stderr.on("data", (chunk) => {
+      const lines = chunk.toString().split("\n").filter(Boolean);
+      lines.forEach((l) => log.warn("[OC:stderr]", l));
+    });
+  }
+
   openclawProcess.on("error", (err) => {
-    console.error("[OpenClaw] process error:", err.message);
+    log.error("OpenClaw process error:", err.message);
     openclawProcess = null;
     scheduleOpenClawRestart(3000);
   });
-  openclawProcess.on("exit", () => {
+  openclawProcess.on("exit", (code, signal) => {
     const uptimeMs = Date.now() - openclawStartedAt;
+    log.warn(`OpenClaw exited: code=${code}, signal=${signal}, uptime=${uptimeMs}ms`);
     if (uptimeMs < 10_000) {
       openclawCrashCount += 1;
     } else {
       openclawCrashCount = 0;
     }
     if (openclawCrashCount >= 2) {
-      // Profile corruption can cause repeated early crashes; switch to a clean profile dir.
+      log.warn("OpenClaw crashed twice in quick succession, resetting browser profiles");
       resetBrowserProfiles();
       openclawCrashCount = 0;
     }
     openclawProcess = null;
     scheduleOpenClawRestart(2000);
   });
+
+  log.info("OpenClaw process spawned, pid:", openclawProcess.pid);
   return true;
 }
 
@@ -326,14 +362,17 @@ ipcMain.handle("update-settings", async (_event, settings) => {
 ipcMain.handle("connect-bridge", async (_event, token) => {
   const serverUrl = store.get("serverUrl");
   const useLocal = store.get("useLocalOpenClaw");
+  log.info(`connect-bridge: serverUrl=${serverUrl}, useLocal=${useLocal}, hasToken=${!!token}`);
   if (!serverUrl || !useLocal || !token) return false;
 
   if (bridgeInstance) bridgeInstance.disconnect();
   bridgeInstance = createBridge(serverUrl, {
     localOpenClawPort: () => localOpenClawPort,
     onTaskEvent: persistTaskEvent,
+    logger: logger.createTaggedLogger("Bridge"),
   });
   const ok = await bridgeInstance.connect(token);
+  log.info("Bridge connect result:", ok);
   return ok;
 });
 
@@ -374,6 +413,29 @@ ipcMain.handle("get-local-runtime-status", async () => {
 
 ipcMain.handle("run-local-self-check", async () => {
   return runLocalSelfCheck();
+});
+
+// ---- Logs IPC ----
+ipcMain.handle("get-logs", async (_event, count) => {
+  return logger.getLogs(typeof count === "number" ? count : 200);
+});
+ipcMain.handle("get-log-file-path", async () => {
+  return logger.getLogFilePath();
+});
+ipcMain.handle("open-log-folder", async () => {
+  const logPath = logger.getLogFilePath();
+  if (logPath) shell.showItemInFolder(logPath);
+});
+
+// ---- Auto-update IPC ----
+ipcMain.handle("check-for-update", async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { available: !!result?.updateInfo, version: result?.updateInfo?.version || null };
+  } catch (err) {
+    log.warn("check-for-update error:", err?.message);
+    return { available: false, error: err?.message };
+  }
 });
 
 // Show native notification
@@ -466,6 +528,45 @@ app.whenReady().then(() => {
 
   createWindow();
   tray = createTray(mainWindow, store, app);
+
+  // ---- Auto-updater ----
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.logger = logger.createTaggedLogger("AutoUpdate");
+
+  autoUpdater.on("checking-for-update", () => log.info("Checking for update..."));
+  autoUpdater.on("update-available", (info) => {
+    log.info("Update available:", info?.version);
+    if (mainWindow) {
+      mainWindow.webContents.send("update-available", { version: info?.version });
+    }
+  });
+  autoUpdater.on("update-not-available", () => log.info("App is up to date"));
+  autoUpdater.on("download-progress", (progress) => {
+    log.debug(`Download progress: ${Math.round(progress.percent)}%`);
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    log.info("Update downloaded:", info?.version);
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: "更新已就绪",
+        body: `v${info?.version} 已下载完成，下次启动时自动安装。点击立即重启。`,
+      });
+      n.on("click", () => autoUpdater.quitAndInstall());
+      n.show();
+    }
+    if (mainWindow) {
+      mainWindow.webContents.send("update-downloaded", { version: info?.version });
+    }
+  });
+  autoUpdater.on("error", (err) => log.error("AutoUpdate error:", err?.message));
+
+  // Check for updates after a short delay (don't block startup)
+  setTimeout(() => {
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      log.warn("Auto-update check failed:", err?.message);
+    });
+  }, 10_000);
 });
 
 app.on("window-all-closed", () => {
