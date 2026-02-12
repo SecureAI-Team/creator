@@ -56,6 +56,32 @@ export async function sendMessage(
 }
 
 /**
+ * Send message to server OpenClaw directly (skip local bridge).
+ * Used for explicit VNC fallback flows.
+ */
+export async function sendMessageServerOnly(
+  userId: string,
+  message: string
+): Promise<string> {
+  const response = await fetch(`${OPENCLAW_URL}/api/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-Id": userId,
+    },
+    body: JSON.stringify({ message }),
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenClaw API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.reply || data.message || "";
+}
+
+/**
  * Get the OpenClaw instance status by checking health endpoint.
  */
 export function getInstanceStatus(userId: string): InstanceStatus {

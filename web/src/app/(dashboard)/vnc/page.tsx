@@ -9,6 +9,7 @@ function VNCContent() {
   const searchParams = useSearchParams();
   const platform = searchParams.get("platform");
   const tool = searchParams.get("tool");
+  const forceVnc = searchParams.get("forceVnc") === "1";
   const [fullscreen, setFullscreen] = useState(false);
   const [vncPassword, setVncPassword] = useState<string | null>(null);
   const [pwdReady, setPwdReady] = useState(false);
@@ -47,9 +48,9 @@ function VNCContent() {
     fetch("/api/platforms/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ platform }),
+      body: JSON.stringify({ platform, forceVnc }),
     }).catch(() => {});
-  }, [platform]);
+  }, [platform, forceVnc]);
 
   const target = platform || tool || "unknown";
   const targetLabel = platform

@@ -22,7 +22,7 @@ const SECRET = new TextEncoder().encode(
 // userId -> WebSocket (only one connection per user, newest wins)
 const connections = new Map();
 
-// requestId -> { resolve, reject }
+// requestId -> { resolve, reject, ack, acked, ackStage, ackTimeout }
 const pending = new Map();
 
 async function verifyToken(token) {
@@ -68,7 +68,7 @@ const server = http.createServer((req, res) => {
         return;
       }
 
-      const { userId, message } = data;
+      const { userId, message, returnOnAck, ackTimeoutMs } = data;
       if (!userId || typeof message !== "string") {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "missing userId or message" }));
@@ -84,10 +84,14 @@ const server = http.createServer((req, res) => {
 
       const requestId = crypto.randomUUID();
       let responded = false;
+      const waitAckOnly = !!returnOnAck;
+      const ackTimeout = Number.isFinite(ackTimeoutMs) ? Math.max(1000, Math.min(20000, Number(ackTimeoutMs))) : 5000;
       const finish = (status, body) => {
         if (responded) return;
         responded = true;
         clearTimeout(timeout);
+        const p = pending.get(requestId);
+        if (p?.ackTimeout) clearTimeout(p.ackTimeout);
         pending.delete(requestId);
         res.writeHead(status, { "Content-Type": "application/json" });
         res.end(JSON.stringify(body));
@@ -99,10 +103,39 @@ const server = http.createServer((req, res) => {
         }
       }, 65_000);
 
-      pending.set(requestId, {
-        resolve: (reply) => finish(200, { reply: reply ?? "" }),
+      const entry = {
+        ack: (stage = "received") => {
+          if (waitAckOnly) {
+            finish(200, { ack: true, stage });
+            return;
+          }
+          const p = pending.get(requestId);
+          if (p) {
+            p.acked = true;
+            p.ackStage = stage;
+          }
+        },
+        resolve: (reply) => {
+          const p = pending.get(requestId);
+          finish(200, {
+            reply: reply ?? "",
+            ack: !!p?.acked,
+            stage: p?.ackStage || null,
+          });
+        },
         reject: (err) => finish(502, { error: err || "bridge_error" }),
-      });
+        acked: false,
+        ackStage: null,
+        ackTimeout: null,
+      };
+      if (waitAckOnly) {
+        entry.ackTimeout = setTimeout(() => {
+          if (pending.has(requestId)) {
+            finish(504, { error: "ack_timeout" });
+          }
+        }, ackTimeout);
+      }
+      pending.set(requestId, entry);
 
       const payload = JSON.stringify({ type: "agent", message, requestId });
       ws.send(payload, (err) => {
@@ -141,6 +174,12 @@ wss.on("connection", async (ws, req) => {
   ws.on("message", (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
+      if (msg.type === "agent-ack" && msg.requestId) {
+        const p = pending.get(msg.requestId);
+        if (p) {
+          p.ack(msg.stage || "received");
+        }
+      }
       if (msg.type === "agent-response" && msg.requestId) {
         const p = pending.get(msg.requestId);
         if (p) {

@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld("creatorDesktop", {
 
   // Start local OpenClaw
   startLocalOpenClaw: () => ipcRenderer.invoke("start-local-openclaw"),
+  getLocalRuntimeStatus: () => ipcRenderer.invoke("get-local-runtime-status"),
+  runLocalSelfCheck: () => ipcRenderer.invoke("run-local-self-check"),
 
   // Notifications
   showNotification: ({ title, body }) =>

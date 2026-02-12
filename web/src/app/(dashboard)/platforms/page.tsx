@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, RefreshCw, MonitorPlay, Loader2 } from "lucide-react";
 
@@ -33,9 +33,12 @@ const statusConfig: Record<string, { label: string; dot: string; bg: string; tex
 export default function PlatformsPage() {
   const [connections, setConnections] = useState<Record<string, PlatformState>>({});
   const [loginLoading, setLoginLoading] = useState<string | null>(null);
+  const [loginHints, setLoginHints] = useState<Record<string, string>>({});
   const [checkLoading, setCheckLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasBridge, setHasBridge] = useState(false);
+  const loginTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
+  const fallbackOpenedRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     async function loadPlatforms() {
@@ -68,35 +71,103 @@ export default function PlatformsPage() {
   const getStatus = (key: string): PlatformState =>
     connections[key] || { status: "DISCONNECTED" };
 
+  const clearLoginTimers = (key: string) => {
+    const timers = loginTimersRef.current[key] || [];
+    timers.forEach((t) => clearTimeout(t));
+    loginTimersRef.current[key] = [];
+  };
+
+  const refreshConnection = async (key: string): Promise<ConnectionStatus | null> => {
+    try {
+      const res = await fetch(`/api/platforms/${key}/check`);
+      const data = await res.json();
+      setConnections((prev) => ({
+        ...prev,
+        [key]: { status: data.status, lastChecked: data.lastChecked },
+      }));
+      return data.status as ConnectionStatus;
+    } catch {
+      return null;
+    }
+  };
+
+  const openVncFallback = (key: string, force = false) => {
+    if (!force && fallbackOpenedRef.current[key]) return;
+    fallbackOpenedRef.current[key] = true;
+    window.open("/vnc?platform=" + key + "&forceVnc=1", "_blank", "width=1300,height=850");
+  };
+
+  const scheduleTimeoutEscalation = (key: string) => {
+    clearLoginTimers(key);
+    const t8 = setTimeout(async () => {
+      const status = await refreshConnection(key);
+      if (status !== "CONNECTED") {
+        setLoginHints((prev) => ({
+          ...prev,
+          [key]: "8s 内未确认浏览器登录页，自动切换 VNC 备用通道...",
+        }));
+        openVncFallback(key);
+      }
+    }, 8_000);
+    const t20 = setTimeout(async () => {
+      const status = await refreshConnection(key);
+      if (status !== "CONNECTED") {
+        setLoginHints((prev) => ({
+          ...prev,
+          [key]: "20s 仍未完成登录，请在已打开的 VNC 窗口完成登录（流程不会中断）",
+        }));
+      }
+    }, 20_000);
+    loginTimersRef.current[key] = [t8, t20];
+  };
+
   const handleLogin = async (key: string) => {
     setLoginLoading(key);
     try {
       const agentRes = await fetch("/api/agent");
       const agentData = agentRes.ok ? await agentRes.json() : {};
       const hasBridge = !!agentData?.hasBridge;
+      fallbackOpenedRef.current[key] = false;
+      clearLoginTimers(key);
+      setLoginHints((prev) => ({
+        ...prev,
+        [key]: hasBridge ? "3s 内等待本地 received 回执..." : "正在切换 VNC 备用方案...",
+      }));
 
       const loginRes = await fetch("/api/platforms/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ platform: key }),
       });
-      const loginData = loginRes.ok ? await loginRes.json() : {};
-      const message = loginData?.message || "请完成登录";
-
-      // 始终打开 VNC 窗口，确保用户有浏览器可登录（本地 OpenClaw 未弹出时也要有备选）
-      window.open("/vnc?platform=" + key, "_blank", "width=1300,height=850");
-      if (hasBridge) {
-        // 本地模式：若 OpenClaw 已弹出浏览器，优先在本地窗口登录；否则在 VNC 窗口中登录
-        alert("已打开 VNC 窗口。若本地已弹出 OpenClaw 浏览器，请在本地窗口完成登录；否则请在 VNC 窗口中登录。");
+      const loginData = await loginRes.json().catch(() => ({}));
+      if (!loginRes.ok) {
+        throw new Error(loginData?.error || "启动登录失败");
       }
-    } catch {
-      // ignore
+
+      if (loginData?.fallbackToVnc || loginData?.mode === "vnc") {
+        setLoginHints((prev) => ({
+          ...prev,
+          [key]: "3s 内未收到本地回执，已自动切换到 VNC 备用方案",
+        }));
+        openVncFallback(key);
+      } else {
+        setLoginHints((prev) => ({
+          ...prev,
+          [key]: loginData?.message || "本地已接收指令，请在弹出的浏览器中登录",
+        }));
+        scheduleTimeoutEscalation(key);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "启动登录失败";
+      setLoginHints((prev) => ({ ...prev, [key]: msg }));
+      // Final safety net: if UI/local flow throws, still provide VNC entry.
+      openVncFallback(key);
     }
     setLoginLoading(null);
   };
 
   const openVnc = (key: string) => {
-    window.open("/vnc?platform=" + key, "_blank", "width=1300,height=850");
+    openVncFallback(key, true);
   };
 
   const handleCheck = async (key: string) => {
@@ -108,11 +179,21 @@ export default function PlatformsPage() {
         ...prev,
         [key]: { status: data.status, lastChecked: data.lastChecked },
       }));
+      if (data.status === "CONNECTED") {
+        clearLoginTimers(key);
+      }
     } catch {
       // ignore
     }
     setCheckLoading(null);
   };
+
+  useEffect(() => {
+    const timersRef = loginTimersRef;
+    return () => {
+      Object.keys(timersRef.current).forEach((k) => clearLoginTimers(k));
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -222,6 +303,11 @@ export default function PlatformsPage() {
                       >
                         VNC 模式（未弹出窗口时用）
                       </Button>
+                    )}
+                    {loginHints[platform.key] && (
+                      <p className="text-xs text-gray-500 leading-5">
+                        {loginHints[platform.key]}
+                      </p>
                     )}
                   </div>
                 )}

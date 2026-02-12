@@ -6,6 +6,7 @@
 const { app, BrowserWindow, shell, ipcMain, Notification, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const net = require("net");
 const { spawn } = require("child_process");
 const Store = require("electron-store");
 const { createTray } = require("./tray");
@@ -25,6 +26,18 @@ let mainWindow = null;
 let tray = null;
 let bridgeInstance = null;
 let openclawProcess = null;
+let openclawRestartTimer = null;
+let localOpenClawPort = 3000;
+let keepLocalOpenClawAlive = false;
+let openclawStartedAt = 0;
+let openclawCrashCount = 0;
+
+const TASK_STATE_KEY = "localTaskState";
+const DEFAULT_TASK_STATE = {
+  updatedAt: 0,
+  lastSuccessAt: 0,
+  byRequestId: {},
+};
 
 function createWindow() {
   const { width, height, x, y } = store.get("windowBounds");
@@ -96,6 +109,193 @@ function saveWindowBounds() {
   }
 }
 
+function getWorkspaceDir() {
+  const workspaceDir = path.join(app.getPath("userData"), "workspace");
+  fs.mkdirSync(workspaceDir, { recursive: true });
+  return workspaceDir;
+}
+
+function getOpenClawPath() {
+  try {
+    const pkgPath = require.resolve("openclaw/package.json");
+    return path.join(path.dirname(pkgPath), "openclaw.mjs");
+  } catch {
+    return path.join(__dirname, "node_modules", "openclaw", "openclaw.mjs");
+  }
+}
+
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, "127.0.0.1");
+  });
+}
+
+async function pickOpenClawPort(start = 3000, end = 3010) {
+  for (let p = start; p <= end; p++) {
+    if (await isPortAvailable(p)) return p;
+  }
+  return start;
+}
+
+async function probeOpenClawApi(port, timeoutMs = 1500) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "/help" }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+function persistTaskEvent(evt) {
+  const state = store.get(TASK_STATE_KEY, DEFAULT_TASK_STATE);
+  const byRequestId = state.byRequestId || {};
+  const requestId = evt.requestId || `evt-${Date.now()}`;
+  const prev = byRequestId[requestId] || {};
+  const next = {
+    ...prev,
+    requestId,
+    message: evt.message || prev.message || "",
+    updatedAt: evt.ts || Date.now(),
+    stage: evt.stage || prev.stage || null,
+    ok: typeof evt.ok === "boolean" ? evt.ok : prev.ok,
+    error: evt.error || prev.error || null,
+  };
+  byRequestId[requestId] = next;
+
+  // Keep state bounded
+  const ids = Object.keys(byRequestId);
+  if (ids.length > 200) {
+    ids
+      .sort((a, b) => (byRequestId[a].updatedAt || 0) - (byRequestId[b].updatedAt || 0))
+      .slice(0, ids.length - 200)
+      .forEach((id) => delete byRequestId[id]);
+  }
+
+  store.set(TASK_STATE_KEY, {
+    updatedAt: Date.now(),
+    lastSuccessAt: evt.ok ? Date.now() : state.lastSuccessAt || 0,
+    byRequestId,
+  });
+}
+
+async function runLocalSelfCheck() {
+  const workspaceDir = getWorkspaceDir();
+  const openclawPath = getOpenClawPath();
+  const writeProbe = path.join(workspaceDir, ".write-probe");
+  let workspaceWritable = false;
+  try {
+    fs.writeFileSync(writeProbe, String(Date.now()), "utf-8");
+    fs.unlinkSync(writeProbe);
+    workspaceWritable = true;
+  } catch {
+    workspaceWritable = false;
+  }
+
+  const openclawPortFree = await isPortAvailable(localOpenClawPort);
+  const openclawHealthy = await probeOpenClawApi(localOpenClawPort, 1200);
+
+  return {
+    checkedAt: Date.now(),
+    bridgeConnected: !!(bridgeInstance && bridgeInstance.isConnected && bridgeInstance.isConnected()),
+    openclawProcessRunning: !!(openclawProcess && !openclawProcess.killed),
+    openclawHealthy,
+    openclawPort: localOpenClawPort,
+    openclawPortFree,
+    workspaceDir,
+    workspaceWritable,
+    openclawPathExists: fs.existsSync(openclawPath),
+    embeddedRuntime: process.execPath,
+  };
+}
+
+function scheduleOpenClawRestart(delayMs = 2000) {
+  if (!keepLocalOpenClawAlive) return;
+  if (openclawRestartTimer) clearTimeout(openclawRestartTimer);
+  openclawRestartTimer = setTimeout(() => {
+    openclawRestartTimer = null;
+    startLocalOpenClawInternal().catch((err) => {
+      console.error("[OpenClaw] auto-restart failed:", err?.message || err);
+      scheduleOpenClawRestart(5000);
+    });
+  }, delayMs);
+}
+
+function resetBrowserProfiles() {
+  const workspaceDir = getWorkspaceDir();
+  const profilesDir = path.join(workspaceDir, "browser-profiles");
+  if (!fs.existsSync(profilesDir)) {
+    fs.mkdirSync(profilesDir, { recursive: true });
+    return;
+  }
+  const backupDir = path.join(workspaceDir, `browser-profiles.broken.${Date.now()}`);
+  try {
+    fs.renameSync(profilesDir, backupDir);
+  } catch {
+    // If rename fails, keep going and try creating fresh directory
+  }
+  fs.mkdirSync(profilesDir, { recursive: true });
+}
+
+async function startLocalOpenClawInternal() {
+  if (openclawProcess) return true;
+
+  const workspaceDir = getWorkspaceDir();
+  const openclawPath = getOpenClawPath();
+  if (!fs.existsSync(openclawPath)) return false;
+
+  localOpenClawPort = await pickOpenClawPort(3000, 3010);
+  const runtimeCmd = process.execPath;
+
+  try {
+    openclawProcess = spawn(runtimeCmd, [openclawPath, "start", "--port", String(localOpenClawPort)], {
+      cwd: workspaceDir,
+      env: {
+        ...process.env,
+        OPENCLAW_HOME: workspaceDir,
+        ELECTRON_RUN_AS_NODE: "1",
+      },
+      stdio: "inherit",
+    });
+    openclawStartedAt = Date.now();
+  } catch (err) {
+    console.error("[OpenClaw] spawn failed:", err.message);
+    openclawProcess = null;
+    return false;
+  }
+
+  openclawProcess.on("error", (err) => {
+    console.error("[OpenClaw] process error:", err.message);
+    openclawProcess = null;
+    scheduleOpenClawRestart(3000);
+  });
+  openclawProcess.on("exit", () => {
+    const uptimeMs = Date.now() - openclawStartedAt;
+    if (uptimeMs < 10_000) {
+      openclawCrashCount += 1;
+    } else {
+      openclawCrashCount = 0;
+    }
+    if (openclawCrashCount >= 2) {
+      // Profile corruption can cause repeated early crashes; switch to a clean profile dir.
+      resetBrowserProfiles();
+      openclawCrashCount = 0;
+    }
+    openclawProcess = null;
+    scheduleOpenClawRestart(2000);
+  });
+  return true;
+}
+
 // ---- IPC Handlers ----
 
 // Save server URL from setup page
@@ -129,7 +329,10 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
   if (!serverUrl || !useLocal || !token) return false;
 
   if (bridgeInstance) bridgeInstance.disconnect();
-  bridgeInstance = createBridge(serverUrl);
+  bridgeInstance = createBridge(serverUrl, {
+    localOpenClawPort: () => localOpenClawPort,
+    onTaskEvent: persistTaskEvent,
+  });
   const ok = await bridgeInstance.connect(token);
   return ok;
 });
@@ -152,40 +355,25 @@ ipcMain.handle("sync-workspace", async (_event, arrayBuffer) => {
   }
 });
 
-// Start local OpenClaw (requires Node.js on PATH; packaged app may not have it)
+// Start local OpenClaw (auto-picks port and auto-recovers on crash)
 ipcMain.handle("start-local-openclaw", async () => {
-  if (openclawProcess) return true;
+  keepLocalOpenClawAlive = true;
+  return startLocalOpenClawInternal();
+});
 
-  const workspaceDir = path.join(app.getPath("userData"), "workspace");
-  let openclawPath;
-  try {
-    const pkgPath = require.resolve("openclaw/package.json");
-    openclawPath = path.join(path.dirname(pkgPath), "openclaw.mjs");
-  } catch {
-    openclawPath = path.join(__dirname, "node_modules", "openclaw", "openclaw.mjs");
-  }
-  if (!fs.existsSync(openclawPath)) return false;
+ipcMain.handle("get-local-runtime-status", async () => {
+  const taskState = store.get(TASK_STATE_KEY, DEFAULT_TASK_STATE);
+  return {
+    bridgeConnected: !!(bridgeInstance && bridgeInstance.isConnected && bridgeInstance.isConnected()),
+    openclawProcessRunning: !!(openclawProcess && !openclawProcess.killed),
+    localOpenClawPort,
+    keepLocalOpenClawAlive,
+    taskState,
+  };
+});
 
-  const nodeCmd = process.platform === "win32" ? "node.exe" : "node";
-  try {
-    openclawProcess = spawn(nodeCmd, [openclawPath, "start", "--port", "3000"], {
-      cwd: workspaceDir,
-      env: { ...process.env, OPENCLAW_HOME: workspaceDir },
-      stdio: "inherit",
-    });
-  } catch (err) {
-    console.error("[OpenClaw] spawn failed:", err.message);
-    return false;
-  }
-
-  openclawProcess.on("error", (err) => {
-    console.error("[OpenClaw] process error:", err.message);
-    openclawProcess = null;
-  });
-  openclawProcess.on("exit", (code) => {
-    openclawProcess = null;
-  });
-  return true;
+ipcMain.handle("run-local-self-check", async () => {
+  return runLocalSelfCheck();
 });
 
 // Show native notification

@@ -13,6 +13,8 @@ export interface BridgeSendResult {
   ok: boolean;
   reply?: string;
   error?: string;
+  ack?: boolean;
+  stage?: string | null;
 }
 
 /**
@@ -46,7 +48,48 @@ export async function sendViaBridge(
     }
 
     const data = (await res.json()) as { reply?: string };
-    return { ok: true, reply: data.reply || "" };
+    return {
+      ok: true,
+      reply: data.reply || "",
+      ack: !!(data as { ack?: boolean }).ack,
+      stage: (data as { stage?: string | null }).stage ?? null,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+}
+
+/**
+ * Send command via bridge and return once desktop side ACKs it.
+ * Used by platform login to decide whether to fallback to VNC quickly.
+ */
+export async function sendViaBridgeAck(
+  userId: string,
+  message: string,
+  ackTimeoutMs = 5_000
+): Promise<BridgeSendResult> {
+  try {
+    const res = await fetch(`${BRIDGE_INTERNAL_URL}/internal/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        message,
+        returnOnAck: true,
+        ackTimeoutMs,
+      }),
+      signal: AbortSignal.timeout(Math.max(ackTimeoutMs + 1500, 4000)),
+    });
+
+    if (res.status === 404) return { ok: false, error: "no_bridge" };
+    if (!res.ok) {
+      const err = await res.text();
+      return { ok: false, error: err || `HTTP ${res.status}` };
+    }
+
+    const data = (await res.json()) as { ack?: boolean; stage?: string };
+    return { ok: !!data.ack, ack: !!data.ack, stage: data.stage || null };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: msg };

@@ -8,6 +8,11 @@ declare global {
       connectBridge?: (token: string) => Promise<boolean>;
       syncWorkspace?: (arrayBuffer: ArrayBuffer) => Promise<boolean>;
       startLocalOpenClaw?: () => Promise<boolean>;
+      runLocalSelfCheck?: () => Promise<{
+        openclawPathExists?: boolean;
+        workspaceWritable?: boolean;
+        openclawProcessRunning?: boolean;
+      }>;
       getConfig?: () => Promise<{ useLocalOpenClaw?: boolean }>;
     };
   }
@@ -58,6 +63,14 @@ export function BridgeConnector() {
         if (!ok || !mounted) return;
 
         didConnect.current = true;
+
+        // Startup self-check: verify local runtime readiness and attempt recovery.
+        if (api!.runLocalSelfCheck) {
+          const check = await api!.runLocalSelfCheck!().catch(() => null);
+          if (check && check.openclawPathExists && check.workspaceWritable && !check.openclawProcessRunning && api!.startLocalOpenClaw) {
+            await api!.startLocalOpenClaw!();
+          }
+        }
 
         // Sync workspace and start OpenClaw when bridge is connected
         if (api!.syncWorkspace) {
