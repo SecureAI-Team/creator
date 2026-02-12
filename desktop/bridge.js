@@ -1,9 +1,14 @@
 /**
  * Bridge client - WebSocket connection to server for local OpenClaw relay.
  * Forwards agent messages from server to local OpenClaw (localhost:3000).
+ *
+ * IMPORTANT: The "received" ACK is only sent AFTER confirming OpenClaw is
+ * reachable. If OpenClaw is down, NO ACK is sent, causing the server to
+ * time out and fall back to VNC automatically.
  */
 
 const WebSocket = require("ws");
+const net = require("net");
 
 /**
  * @param {string} serverUrl - Base URL (e.g. https://example.com)
@@ -34,6 +39,29 @@ function createBridge(serverUrl, options = {}) {
   let reconnectTimer = null;
   let lastToken = null;
   const RECONNECT_DELAY = 5000;
+
+  /**
+   * Quick TCP probe to check if OpenClaw port is open.
+   * Resolves true/false within timeoutMs.
+   */
+  function probePort(port, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+      const sock = net.createConnection({ port, host: "127.0.0.1" });
+      const timer = setTimeout(() => {
+        sock.destroy();
+        resolve(false);
+      }, timeoutMs);
+      sock.on("connect", () => {
+        clearTimeout(timer);
+        sock.destroy();
+        resolve(true);
+      });
+      sock.on("error", () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+    });
+  }
 
   async function connect(token) {
     if (!token) return false;
@@ -78,18 +106,28 @@ function createBridge(serverUrl, options = {}) {
   async function handleAgentMessage(msg) {
     const { message, requestId } = msg;
     bLog.info(`[${requestId}] Agent message: ${message}`);
+
+    const port = getPort();
+
+    // ---- Pre-check: is OpenClaw reachable? ----
+    // If not, DON'T send ACK → server times out → falls back to VNC.
+    const portOpen = await probePort(port, 1200);
+    if (!portOpen) {
+      bLog.warn(`[${requestId}] OpenClaw not reachable at :${port}, NOT sending ACK (will trigger VNC fallback)`);
+      emit({ type: "ack", requestId, stage: "local_unavailable", message });
+      // Send error response so bridge-server can clean up the pending request
+      sendResponse(requestId, `错误: 本地引擎未运行 (port ${port} unreachable)`);
+      return;
+    }
+
+    // OpenClaw is reachable → send ACK
     sendAck(requestId, "received");
     emit({ type: "ack", requestId, stage: "received", message });
+
     try {
       const isLogin = typeof message === "string" && message.startsWith("/login ");
-      const port = getPort();
       if (isLogin) {
         bLog.info(`[${requestId}] Login command detected, forwarding to OpenClaw at :${port}`);
-        sendAck(requestId, "browser_opened");
-        emit({ type: "ack", requestId, stage: "browser_opened", message });
-      } else {
-        sendAck(requestId, "local_request_started");
-        emit({ type: "ack", requestId, stage: "local_request_started", message });
       }
 
       bLog.debug(`[${requestId}] POST http://127.0.0.1:${port}/api/chat`);
@@ -102,7 +140,10 @@ function createBridge(serverUrl, options = {}) {
       const data = await res.json();
       const reply = data.reply || data.message || "";
       bLog.info(`[${requestId}] OpenClaw reply (${res.status}): ${reply.slice(0, 200)}`);
+
       if (isLogin) {
+        sendAck(requestId, "browser_opened");
+        emit({ type: "ack", requestId, stage: "browser_opened", message });
         sendAck(requestId, "login_page_loaded");
         emit({ type: "ack", requestId, stage: "login_page_loaded", message });
         sendAck(requestId, "done");
