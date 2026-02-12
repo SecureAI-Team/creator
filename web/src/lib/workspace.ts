@@ -23,6 +23,33 @@ export function getUserWorkspaceDir(userId: string): string {
 }
 
 /**
+ * Ensure user workspace directory exists with minimal structure.
+ * Called before platform login so OpenClaw has a workspace to use.
+ * Does not copy templates (those live in the OpenClaw container).
+ */
+export function ensureUserWorkspaceExists(userId: string): string {
+  const wsDir = getUserWorkspaceDir(userId);
+  if (existsSync(wsDir)) return wsDir;
+
+  const dataDirs = [
+    "workspace/auth",
+    "workspace/content/drafts",
+    "workspace/content/adapted",
+    "workspace/content/media",
+    "workspace/content/published",
+    "workspace/content/screenshots",
+    "workspace/data",
+    "workspace/topics",
+    "browser-profiles",
+  ];
+  mkdirSync(wsDir, { recursive: true });
+  for (const dir of dataDirs) {
+    mkdirSync(join(wsDir, dir), { recursive: true });
+  }
+  return wsDir;
+}
+
+/**
  * Calculate the base CDP port for a user's browser profiles.
  * Uses a deterministic hash of the userId to distribute port ranges.
  */

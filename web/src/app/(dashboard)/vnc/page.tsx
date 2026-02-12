@@ -155,14 +155,14 @@ function VNCContent() {
         </div>
       )}
 
-      {/* Local mode: no VNC needed */}
-      {hasBridge === true && (
+      {/* Local mode hint - but still show VNC when platform param (user may need it if local browser didn't pop) */}
+      {hasBridge === true && !platform && (
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-6">
           <h3 className="font-semibold text-emerald-800 mb-2">本地模式</h3>
           <p className="text-emerald-700/90">
             您正在使用本地 OpenClaw，平台登录时浏览器将在本地弹出，无需 VNC。
           </p>
-          <a href={platform ? "/platforms" : "/tools"}>
+          <a href="/platforms">
             <Button variant="outline" size="sm" className="mt-4 rounded-xl border-emerald-200 text-emerald-700">
               <ArrowLeft className="h-4 w-4 mr-1" />
               返回
@@ -171,8 +171,8 @@ function VNCContent() {
         </div>
       )}
 
-      {/* VNC iframe - wait for password fetch so we can auto-inject */}
-      {hasBridge !== true && (
+      {/* VNC iframe - show when no bridge, or when platform param (user opened via login, needs VNC) */}
+      {(hasBridge !== true || !!platform) && (
       <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden shadow-sm">
         <div
           className={`relative bg-gray-900 ${

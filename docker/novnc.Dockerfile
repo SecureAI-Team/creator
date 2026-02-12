@@ -7,8 +7,8 @@ FROM ${REGISTRY}/alpine:3.21
 
 RUN apk add --no-cache python3 py3-pip py3-numpy bash procps && \
     apk add --no-cache --virtual .build-deps git && \
-    git clone --depth 1 https://github.com/novnc/noVNC.git /opt/novnc && \
-    git clone --depth 1 https://github.com/novnc/websockify.git /opt/novnc/utils/websockify && \
+    git clone --depth 1 --branch v1.6.0 https://github.com/novnc/noVNC.git /opt/novnc && \
+    git clone --depth 1 --branch v0.12.0 https://github.com/novnc/websockify.git /opt/novnc/utils/websockify && \
     ln -s /opt/novnc/vnc.html /opt/novnc/index.html && \
     apk del .build-deps
 

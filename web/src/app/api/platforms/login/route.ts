@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { sendMessage } from "@/lib/openclaw";
 import { hasBridge } from "@/lib/bridge";
+import { ensureUserWorkspaceExists } from "@/lib/workspace";
 
 /**
  * Platform Login API
@@ -20,6 +21,9 @@ export async function POST(request: NextRequest) {
     if (!platform) {
       return NextResponse.json({ error: "请指定平台" }, { status: 400 });
     }
+
+    // Ensure user workspace exists before login (so OpenClaw/VNC has workspace)
+    ensureUserWorkspaceExists(session.user.id);
 
     // Send login command to user's OpenClaw instance (local bridge or server)
     const reply = await sendMessage(
