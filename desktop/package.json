@@ -1,6 +1,6 @@
 {
   "name": "creator-desktop",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "自媒体创作助手 - 桌面客户端",
   "main": "main.js",
   "author": "SecureAI Team",
@@ -16,7 +16,6 @@
   "dependencies": {
     "electron-store": "^8.2.0",
     "electron-updater": "^6.3.0",
-    "openclaw": "^2026.2.9",
     "ws": "^8.19.0",
     "extract-zip": "^2.0.1"
   },

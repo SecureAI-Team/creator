@@ -128,13 +128,18 @@ function getWorkspaceDir() {
   return workspaceDir;
 }
 
+// OpenClaw version to install at runtime (keep in sync with tested version)
+const OPENCLAW_VERSION = "2026.2.9";
+
+/**
+ * Get the path to openclaw.mjs inside the workspace's local node_modules.
+ * OpenClaw is NOT bundled with the Electron app — it's installed at runtime
+ * by the system Node.js into the workspace directory so that npm can properly
+ * resolve its full dependency tree (600+ packages).
+ */
 function getOpenClawPath() {
-  try {
-    const pkgPath = require.resolve("openclaw/package.json");
-    return path.join(path.dirname(pkgPath), "openclaw.mjs");
-  } catch {
-    return path.join(__dirname, "node_modules", "openclaw", "openclaw.mjs");
-  }
+  const workspaceDir = getWorkspaceDir();
+  return path.join(workspaceDir, "node_modules", "openclaw", "openclaw.mjs");
 }
 
 /**
@@ -194,6 +199,72 @@ function findSystemNode() {
     }
   }
   return null; // Not found
+}
+
+/**
+ * Ensure openclaw is installed in the workspace directory.
+ * Uses the system Node.js + npm to install it with all transitive dependencies.
+ * Returns true if openclaw is ready, false otherwise.
+ */
+async function ensureOpenClawInstalled(systemNode) {
+  const workspaceDir = getWorkspaceDir();
+  const openclawPath = getOpenClawPath();
+  const pkgJsonPath = path.join(workspaceDir, "node_modules", "openclaw", "package.json");
+
+  // Check if already installed with correct version
+  if (fs.existsSync(pkgJsonPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
+      if (pkg.version === OPENCLAW_VERSION) {
+        log.info(`OpenClaw ${OPENCLAW_VERSION} already installed in workspace`);
+        return true;
+      }
+      log.info(`OpenClaw version mismatch: installed=${pkg.version}, need=${OPENCLAW_VERSION}`);
+    } catch {
+      // corrupt package.json, reinstall
+    }
+  }
+
+  log.info(`Installing openclaw@${OPENCLAW_VERSION} into workspace: ${workspaceDir}`);
+  if (mainWindow) {
+    mainWindow.webContents.send("openclaw-crash-loop", {
+      crashCount: 0,
+      message: `正在安装本地引擎 (openclaw@${OPENCLAW_VERSION})，首次启动需要 1-2 分钟...`,
+    });
+  }
+
+  // Find npm alongside system node
+  const { execFileSync } = require("child_process");
+  const nodeDir = path.dirname(systemNode);
+  const isWin = process.platform === "win32";
+  const npmCmd = isWin ? path.join(nodeDir, "npm.cmd") : path.join(nodeDir, "npm");
+
+  // Create a minimal package.json in workspace if it doesn't exist
+  const wsPkgJson = path.join(workspaceDir, "package.json");
+  if (!fs.existsSync(wsPkgJson)) {
+    fs.writeFileSync(wsPkgJson, JSON.stringify({ name: "creator-workspace", private: true }, null, 2));
+  }
+
+  try {
+    const result = execFileSync(npmCmd, ["install", `openclaw@${OPENCLAW_VERSION}`, "--no-audit", "--no-fund"], {
+      cwd: workspaceDir,
+      timeout: 300_000, // 5 minutes max
+      encoding: "utf-8",
+      env: { ...process.env, NODE_ENV: "production" },
+      windowsHide: true,
+    });
+    log.info("npm install output:", result.trim().slice(0, 500));
+    return fs.existsSync(openclawPath);
+  } catch (err) {
+    log.error("Failed to install openclaw:", err?.message || err);
+    if (mainWindow) {
+      mainWindow.webContents.send("openclaw-crash-loop", {
+        crashCount: 0,
+        message: `安装本地引擎失败: ${err?.message?.slice(0, 200) || "未知错误"}`,
+      });
+    }
+    return false;
+  }
 }
 
 function isPortAvailable(port) {
@@ -289,8 +360,7 @@ async function runLocalSelfCheck() {
     workspaceWritable,
     openclawPath,
     openclawPathExists: fs.existsSync(openclawPath),
-    embeddedRuntime: process.execPath,
-    embeddedNodeVersion: process.versions.node,
+    openclawVersion: OPENCLAW_VERSION,
     systemNode: findSystemNode() || "(not found - need >=22.12.0)",
   };
 }
@@ -340,38 +410,9 @@ async function startLocalOpenClawInternal() {
     return true;
   }
 
-  const workspaceDir = getWorkspaceDir();
-  const openclawPath = getOpenClawPath();
-  if (!fs.existsSync(openclawPath)) {
-    log.error("OpenClaw binary not found:", openclawPath);
-    return false;
-  }
-
-  localOpenClawPort = await pickOpenClawPort(3000, 3010);
-
-  // ---- Choose the right Node.js runtime ----
-  // OpenClaw requires Node.js >= 22.12.0 but Electron 33 bundles Node 20.18.
-  // We MUST use a system-installed Node.js that satisfies the requirement.
+  // ---- 1. Find system Node.js >= 22.12.0 ----
   const systemNode = findSystemNode();
-  let runtimeCmd;
-  let runtimeEnv;
-
-  // Generate a local gateway token so bridge.js can authenticate if needed
-  const gatewayToken = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-
-  if (systemNode) {
-    // Use system Node.js — no ELECTRON_RUN_AS_NODE needed
-    runtimeCmd = systemNode;
-    runtimeEnv = {
-      ...process.env,
-      OPENCLAW_HOME: workspaceDir,
-      OPENCLAW_NO_RESPAWN: "1",           // Prevent OpenClaw from re-spawning itself
-    };
-    // Remove ELECTRON_RUN_AS_NODE so it doesn't interfere with system Node
-    delete runtimeEnv.ELECTRON_RUN_AS_NODE;
-    log.info(`Starting OpenClaw with system Node: runtime=${runtimeCmd}, script=${openclawPath}, port=${localOpenClawPort}, cwd=${workspaceDir}`);
-  } else {
-    // No system Node.js >= 22.12.0 found — OpenClaw cannot run
+  if (!systemNode) {
     log.warn("System Node.js >= 22.12.0 not found! OpenClaw requires Node 22+.");
     log.warn("Please install Node.js >= 22.12.0 from https://nodejs.org/en/download");
     if (mainWindow) {
@@ -383,8 +424,31 @@ async function startLocalOpenClawInternal() {
     return false;
   }
 
+  // ---- 2. Ensure openclaw is installed in workspace ----
+  const installed = await ensureOpenClawInstalled(systemNode);
+  if (!installed) {
+    log.error("OpenClaw installation failed");
+    return false;
+  }
+
+  const workspaceDir = getWorkspaceDir();
+  const openclawPath = getOpenClawPath();
+  localOpenClawPort = await pickOpenClawPort(3000, 3010);
+
+  // Generate a local gateway token
+  const gatewayToken = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  const runtimeEnv = {
+    ...process.env,
+    OPENCLAW_HOME: workspaceDir,
+    OPENCLAW_NO_RESPAWN: "1",
+  };
+  delete runtimeEnv.ELECTRON_RUN_AS_NODE;
+
+  log.info(`Starting OpenClaw: node=${systemNode}, script=${openclawPath}, port=${localOpenClawPort}`);
+
   try {
-    openclawProcess = spawn(runtimeCmd, [
+    openclawProcess = spawn(systemNode, [
       openclawPath,
       "gateway",
       "--port", String(localOpenClawPort),
