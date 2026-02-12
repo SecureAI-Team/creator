@@ -63,4 +63,4 @@ USER nextjs
 
 EXPOSE 3001 3002
 
-CMD ["sh", "-c", "node bridge-server.js & exec node server.js"]
+CMD ["sh", "-c", "while true; do node bridge-server.js; echo '[Bridge] exited, restarting in 2s...'; sleep 2; done & exec node server.js"]
