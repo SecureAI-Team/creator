@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Globe,
   FileText,
@@ -203,12 +204,12 @@ export default function OverviewPage() {
       <div className="rounded-2xl border border-gray-100 bg-white p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-900">最近内容</h2>
-          <a
+          <Link
             href="/content"
             className="text-sm text-blue-600 hover:text-blue-700 font-medium"
           >
             查看全部
-          </a>
+          </Link>
         </div>
         {recentContent && recentContent.items.length > 0 ? (
           <div className="space-y-2">

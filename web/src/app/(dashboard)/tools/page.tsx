@@ -424,7 +424,7 @@ export default function ToolsPage() {
               <div className="py-12 text-center">
                 <Clock className="h-8 w-8 text-gray-300 mx-auto mb-2" />
                 <p className="text-sm text-gray-400">暂无定时任务</p>
-                <p className="text-xs text-gray-300 mt-1">点击上方"快速创建"或"自定义新任务"来添加</p>
+                <p className="text-xs text-gray-300 mt-1">点击上方「快速创建」或「自定义新任务」来添加</p>
               </div>
             )}
           </div>

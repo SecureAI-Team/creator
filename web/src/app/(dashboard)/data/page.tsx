@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  Eye, ThumbsUp, MessageSquare, Share2, RefreshCw, Loader2, Timer,
+  Eye, ThumbsUp, RefreshCw, Loader2, Timer,
   FileText, Users, BarChart3, TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import {
