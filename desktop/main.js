@@ -737,6 +737,10 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
     localOpenClawPort: () => localOpenClawPort,
     localGatewayToken: () => localGatewayToken,
     onTaskEvent: persistTaskEvent,
+    onOpenUrl: async (url) => {
+      log.info(`Opening URL in default browser: ${url}`);
+      await shell.openExternal(url);
+    },
     logger: logger.createTaggedLogger("Bridge"),
   });
   const ok = await bridgeInstance.connect(token);

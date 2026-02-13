@@ -322,13 +322,66 @@ function createBridge(serverUrl, options = {}) {
     });
   }
 
+  // Platform login URL mapping
+  const PLATFORM_LOGIN_URLS = {
+    bilibili: "https://passport.bilibili.com/login",
+    douyin: "https://creator.douyin.com",
+    xiaohongshu: "https://creator.xiaohongshu.com",
+    youtube: "https://studio.youtube.com",
+    "weixin-mp": "https://mp.weixin.qq.com",
+    "weixin-channels": "https://channels.weixin.qq.com",
+    kuaishou: "https://cp.kuaishou.com",
+    zhihu: "https://www.zhihu.com/signin",
+    weibo: "https://weibo.com/login",
+    toutiao: "https://mp.toutiao.com",
+  };
+
   async function handleAgentMessage(msg) {
     const { message, requestId } = msg;
     bLog.info(`[${requestId}] Agent message: ${message}`);
 
-    // ---- Pre-check: can we connect to the local OpenClaw gateway? ----
-    // Try to establish/reuse the WebSocket RPC connection.
-    // Retry up to 3 times with 3s intervals to handle case where OpenClaw is still starting.
+    const isLogin = typeof message === "string" && message.startsWith("/login ");
+
+    // ---- For /login commands: directly open the browser, bypass AI ----
+    if (isLogin) {
+      const platform = message.replace("/login ", "").trim().toLowerCase();
+      const loginUrl = PLATFORM_LOGIN_URLS[platform];
+
+      if (loginUrl) {
+        bLog.info(`[${requestId}] Login command: opening ${loginUrl} directly (bypassing AI)`);
+        sendAck(requestId, "received");
+        emit({ type: "ack", requestId, stage: "received", message });
+
+        try {
+          // Use the onOpenUrl callback to open the browser directly
+          if (typeof options.onOpenUrl === "function") {
+            await options.onOpenUrl(loginUrl);
+            bLog.info(`[${requestId}] Browser opened for ${platform}: ${loginUrl}`);
+          } else {
+            bLog.warn(`[${requestId}] No onOpenUrl callback, cannot open browser`);
+          }
+
+          sendAck(requestId, "browser_opened");
+          emit({ type: "ack", requestId, stage: "browser_opened", message });
+          sendAck(requestId, "login_page_loaded");
+          emit({ type: "ack", requestId, stage: "login_page_loaded", message });
+
+          const reply = `已在浏览器中打开 ${platform} 登录页面: ${loginUrl}`;
+          emit({ type: "response", requestId, ok: true, message, reply });
+          sendResponse(requestId, reply);
+        } catch (err) {
+          bLog.error(`[${requestId}] Failed to open browser: ${err.message}`);
+          sendAck(requestId, "local_error");
+          emit({ type: "response", requestId, ok: false, message, error: err.message });
+          sendResponse(requestId, `错误: 无法打开浏览器 - ${err.message}`);
+        }
+        return;
+      }
+      // Unknown platform: fall through to AI
+      bLog.warn(`[${requestId}] Unknown platform "${platform}", falling through to AI`);
+    }
+
+    // ---- For non-login commands: use OpenClaw AI gateway ----
     let rpcReady = false;
     const MAX_CONNECT_RETRIES = 3;
     const CONNECT_RETRY_INTERVAL_MS = 3000;
@@ -357,11 +410,6 @@ function createBridge(serverUrl, options = {}) {
     emit({ type: "ack", requestId, stage: "received", message });
 
     try {
-      const isLogin = typeof message === "string" && message.startsWith("/login ");
-      if (isLogin) {
-        bLog.info(`[${requestId}] Login command detected, forwarding to OpenClaw gateway`);
-      }
-
       // Send chat message via WebSocket RPC
       bLog.debug(`[${requestId}] chat.send via gateway RPC`);
       const result = await gatewayRPC.request("chat.send", {
@@ -374,17 +422,8 @@ function createBridge(serverUrl, options = {}) {
       const runId = result?.runId || requestId;
       bLog.info(`[${requestId}] Gateway RPC chat.send result: status=${status}, runId=${runId}`);
 
-      if (isLogin) {
-        sendAck(requestId, "browser_opened");
-        emit({ type: "ack", requestId, stage: "browser_opened", message });
-        sendAck(requestId, "login_page_loaded");
-        emit({ type: "ack", requestId, stage: "login_page_loaded", message });
-        sendAck(requestId, "done");
-        emit({ type: "ack", requestId, stage: "done", message });
-      } else {
-        sendAck(requestId, "local_response");
-        emit({ type: "ack", requestId, stage: "local_response", message });
-      }
+      sendAck(requestId, "local_response");
+      emit({ type: "ack", requestId, stage: "local_response", message });
 
       const reply = `OpenClaw: ${status} (runId: ${runId})`;
       emit({ type: "response", requestId, ok: true, message, reply });
