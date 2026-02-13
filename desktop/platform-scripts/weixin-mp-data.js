@@ -55,14 +55,19 @@ async function collect(helpers) {
   if (homeText) {
     result.rawData.homeSnapshot = homeText.substring(0, 5000);
 
-    // The home page often shows key metrics:
-    // 新关注人数、取消关注人数、净增关注、累计关注
-    // 昨日阅读量、昨日分享次数
-    result.followers = findMetric(homeText, ["累计关注", "总关注", "粉丝总数", "关注人数"]);
-    result.totalViews = findMetric(homeText, ["阅读量", "总阅读", "昨日阅读"]);
+    // WeChat MP home page shows (from accessibility tree):
+    //   原创内容 "9"  → contentCount
+    //   总用户数 "4"  → followers
+    //   昨日阅读(人) "2"  → totalViews
+    //   昨日分享(人) "0"  → totalShares
+    //   昨日新增关注(人) "0"
+    result.followers = findMetric(homeText, ["总用户数", "累计关注", "总关注", "粉丝总数"]);
+    result.totalViews = findMetric(homeText, ["昨日阅读", "阅读量", "总阅读"]);
+    result.totalShares = findMetric(homeText, ["昨日分享", "分享次数"]);
+    result.contentCount = findMetric(homeText, ["原创内容", "已发表", "文章数"]);
 
     // Also check for recent follower growth
-    const newFollowers = findMetric(homeText, ["新增关注", "新关注", "净增关注"]);
+    const newFollowers = findMetric(homeText, ["昨日新增关注", "新增关注", "新关注", "净增关注"]);
     if (newFollowers > 0) {
       result.rawData.newFollowers = newFollowers;
     }
