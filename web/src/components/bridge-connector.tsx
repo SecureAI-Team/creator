@@ -234,9 +234,10 @@ export function BridgeConnector() {
     };
   }, [connectWithRetry]);
 
-  // ---- Poll hasBridge (status check only, no reconnect from here) ----
+  // ---- Poll hasBridge and reconnect with fresh token if bridge is down ----
   useEffect(() => {
     let active = true;
+    let consecutiveDisconnects = 0;
 
     async function pollBridge() {
       try {
@@ -245,27 +246,31 @@ export function BridgeConnector() {
         const connected = !!data?.hasBridge;
         if (active) setHasBridge(connected);
 
-        // If we recently connected successfully, trust desktop-side reconnect
-        const sinceLastConnect = Date.now() - lastConnectedAtRef.current;
-        if (sinceLastConnect < RECONNECT_COOLDOWN) {
-          if (!connected) {
-            console.log(
-              LOG_PREFIX,
-              `hasBridge=false but within cooldown (${Math.round(sinceLastConnect / 1000)}s ago). Desktop-side will handle reconnect.`
-            );
-          }
+        if (connected) {
+          consecutiveDisconnects = 0;
           return;
         }
 
-        // Only reconnect if bridge is genuinely down and we're not already trying
+        // Bridge is down
+        consecutiveDisconnects++;
+
+        // If we just connected, give desktop-side reconnect a chance first
+        const sinceLastConnect = Date.now() - lastConnectedAtRef.current;
+        if (sinceLastConnect < RECONNECT_COOLDOWN && consecutiveDisconnects <= 2) {
+          console.log(
+            LOG_PREFIX,
+            `hasBridge=false but within cooldown (${Math.round(sinceLastConnect / 1000)}s ago). Desktop-side will handle reconnect.`
+          );
+          return;
+        }
+
+        // Reconnect with a fresh token if bridge is genuinely down and we're not already trying
         if (
-          !connected &&
           isDesktop &&
-          bridgeStatus !== "connecting" &&
           !connectingRef.current &&
           active
         ) {
-          console.log(LOG_PREFIX, "hasBridge=false after cooldown, attempting reconnect...");
+          console.log(LOG_PREFIX, `hasBridge=false (${consecutiveDisconnects}x), fetching fresh token and reconnecting...`);
           retryCountRef.current = 0;
           connectWithRetry();
         }
@@ -280,7 +285,7 @@ export function BridgeConnector() {
       active = false;
       clearInterval(timer);
     };
-  }, [isDesktop, bridgeStatus, connectWithRetry]);
+  }, [isDesktop, connectWithRetry]);
 
   return (
     <>

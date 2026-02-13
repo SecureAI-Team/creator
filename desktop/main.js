@@ -661,13 +661,18 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
   log.info(`connect-bridge: serverUrl=${serverUrl}, useLocal=${useLocal}, hasToken=${!!token}`);
   if (!serverUrl || !useLocal || !token) return false;
 
-  // If bridge is already connected, skip reconnect to avoid kick-loop
+  // If bridge is already connected with a healthy connection, skip to avoid kick-loop
   if (bridgeInstance && bridgeInstance.isConnected && bridgeInstance.isConnected()) {
-    log.info("Bridge already connected, skipping reconnect");
+    log.info("Bridge already connected with valid token, skipping reconnect");
     return true;
   }
 
-  if (bridgeInstance) bridgeInstance.disconnect();
+  // Disconnect existing bridge (cleans up old WS and timers)
+  if (bridgeInstance) {
+    log.info("Disconnecting old bridge before reconnect with fresh token");
+    bridgeInstance.disconnect();
+  }
+
   bridgeInstance = createBridge(serverUrl, {
     localOpenClawPort: () => localOpenClawPort,
     localGatewayToken: () => localGatewayToken,

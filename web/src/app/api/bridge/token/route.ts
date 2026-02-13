@@ -21,7 +21,7 @@ export async function GET() {
     const token = await new SignJWT({ userId: session.user.id })
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
-      .setExpirationTime("5m")
+      .setExpirationTime("24h")
       .sign(secret);
 
     return NextResponse.json({ token });

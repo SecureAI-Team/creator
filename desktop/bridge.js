@@ -250,14 +250,31 @@ function createBridge(serverUrl, options = {}) {
   let ws = null;
   let reconnectTimer = null;
   let lastToken = null;
+  let tokenInvalid = false; // Set true when server rejects token (code 4001)
   const RECONNECT_DELAY = 5000;
 
   // Create the local gateway RPC client
   const gatewayRPC = createGatewayRPC(getPort, getGatewayToken, bLog);
 
+  function cleanupWs() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (ws) {
+      try { ws.removeAllListeners(); ws.close(); } catch {}
+      ws = null;
+    }
+  }
+
   async function connect(token) {
     if (!token) return false;
+
+    // Clean up any existing connection before creating a new one
+    cleanupWs();
+
     lastToken = token;
+    tokenInvalid = false;
 
     const withToken = `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
     bLog.info("Connecting to bridge:", url);
@@ -278,6 +295,16 @@ function createBridge(serverUrl, options = {}) {
     ws.on("close", (code, reason) => {
       bLog.warn(`WS closed: code=${code}, reason=${reason || "none"}`);
       ws = null;
+
+      // If server rejected token (4001), DON'T auto-reconnect with same token.
+      // Let the bridge-connector component fetch a fresh token and call connect() again.
+      if (code === 4001) {
+        tokenInvalid = true;
+        bLog.warn("Token rejected by server. Waiting for fresh token from bridge-connector.");
+        return;
+      }
+
+      // For other close codes, auto-reconnect with same token
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(() => connect(lastToken), RECONNECT_DELAY);
     });
@@ -384,19 +411,12 @@ function createBridge(serverUrl, options = {}) {
   }
 
   function disconnect() {
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
+    cleanupWs();
     gatewayRPC.disconnect();
-    if (ws) {
-      ws.close();
-      ws = null;
-    }
   }
 
   function isConnected() {
-    return ws && ws.readyState === 1;
+    return ws && ws.readyState === 1 && !tokenInvalid;
   }
 
   return { connect, disconnect, isConnected };
