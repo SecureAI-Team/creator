@@ -6,6 +6,13 @@ import { NextResponse } from "next/server";
  * GET /api/data
  * Get analytics data for the current user.
  * Query params: ?platform=bilibili&days=7
+ *
+ * Returns:
+ *   - totals: aggregated PublishRecord metrics
+ *   - records: per-content publish records
+ *   - contentStats: content count grouped by status
+ *   - platforms: platform connections status
+ *   - platformMetrics: latest platform-level metrics from data collection
  */
 export const GET = auth(async function GET(req) {
   if (!req.auth?.user?.id) {
@@ -65,6 +72,17 @@ export const GET = auth(async function GET(req) {
     },
   });
 
+  // Latest platform-level metrics (from data collection)
+  const metricsWhere: Record<string, unknown> = { userId };
+  if (platform) {
+    metricsWhere.platform = platform;
+  }
+  const latestMetrics = await prisma.platformMetrics.findMany({
+    where: metricsWhere,
+    orderBy: { date: "desc" },
+    distinct: ["platform"],
+  });
+
   return NextResponse.json({
     period: { days, since: since.toISOString() },
     totals,
@@ -74,5 +92,6 @@ export const GET = auth(async function GET(req) {
       count: s._count,
     })),
     platforms,
+    platformMetrics: latestMetrics,
   });
 }) as unknown as (req: Request) => Promise<Response>;

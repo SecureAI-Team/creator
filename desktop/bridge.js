@@ -356,6 +356,66 @@ function createBridge(serverUrl, options = {}) {
 
     const isLogin = typeof message === "string" && message.startsWith("/login ");
     const isStatus = typeof message === "string" && message.startsWith("/status ");
+    const isPublish = typeof message === "string" && message.startsWith("/publish ");
+    const isData = typeof message === "string" && message.startsWith("/data ");
+
+    // ---- For /publish commands: invoke platform publish script ----
+    if (isPublish) {
+      const payloadStr = message.substring(9); // strip "/publish "
+      bLog.info(`[${requestId}] Publish command received`);
+      sendAck(requestId, "received");
+      emit({ type: "ack", requestId, stage: "received", message: "/publish ..." });
+
+      try {
+        const payload = JSON.parse(payloadStr);
+        bLog.info(`[${requestId}] Publishing to ${payload.platform}: "${payload.title}"`);
+
+        if (typeof options.onPublish === "function") {
+          const result = await options.onPublish(payload.platform, payload);
+          bLog.info(`[${requestId}] Publish result: ${JSON.stringify(result)}`);
+          sendAck(requestId, "local_response");
+          emit({ type: "response", requestId, ok: true, message: "/publish ...", reply: JSON.stringify(result) });
+          sendResponse(requestId, JSON.stringify(result));
+        } else {
+          throw new Error("No onPublish handler available");
+        }
+      } catch (err) {
+        bLog.error(`[${requestId}] Publish error: ${err.message}`);
+        const errorResult = JSON.stringify({ success: false, error: err.message });
+        sendAck(requestId, "local_error");
+        emit({ type: "response", requestId, ok: false, message: "/publish ...", error: err.message });
+        sendResponse(requestId, errorResult);
+      }
+      return;
+    }
+
+    // ---- For /data commands: invoke data collection script ----
+    if (isData) {
+      const parts = message.split(" ");
+      const action = parts[1]; // "refresh"
+      const targetPlatform = parts[2] || "all"; // platform or "all"
+      bLog.info(`[${requestId}] Data command: action=${action}, platform=${targetPlatform}`);
+      sendAck(requestId, "received");
+      emit({ type: "ack", requestId, stage: "received", message });
+
+      try {
+        if (typeof options.onDataRefresh === "function") {
+          const result = await options.onDataRefresh(targetPlatform);
+          bLog.info(`[${requestId}] Data refresh result: ${JSON.stringify(result)}`);
+          sendAck(requestId, "local_response");
+          emit({ type: "response", requestId, ok: true, message, reply: JSON.stringify(result) });
+          sendResponse(requestId, JSON.stringify(result));
+        } else {
+          throw new Error("No onDataRefresh handler available");
+        }
+      } catch (err) {
+        bLog.error(`[${requestId}] Data refresh error: ${err.message}`);
+        sendAck(requestId, "local_error");
+        emit({ type: "response", requestId, ok: false, message, error: err.message });
+        sendResponse(requestId, JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
 
     // ---- For /status commands: check cookies directly, bypass AI ----
     if (isStatus) {

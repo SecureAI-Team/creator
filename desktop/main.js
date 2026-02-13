@@ -737,6 +737,26 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
     localOpenClawPort: () => localOpenClawPort,
     localGatewayToken: () => localGatewayToken,
     onTaskEvent: persistTaskEvent,
+    onPublish: async (platform, payload) => {
+      log.info(`Publishing to ${platform}: "${payload.title}"`);
+      const { publishToPlatform } = require("./platform-scripts");
+      const sysNode = findSystemNode();
+      const ocPath = getOpenClawPath();
+      if (!sysNode || !fs.existsSync(ocPath)) {
+        throw new Error("OpenClaw or system Node.js not available");
+      }
+      return await publishToPlatform(platform, payload, { systemNode: sysNode, openclawPath: ocPath });
+    },
+    onDataRefresh: async (platform) => {
+      log.info(`Data refresh for: ${platform}`);
+      const { collectPlatformData } = require("./platform-scripts");
+      const sysNode = findSystemNode();
+      const ocPath = getOpenClawPath();
+      if (!sysNode || !fs.existsSync(ocPath)) {
+        throw new Error("OpenClaw or system Node.js not available");
+      }
+      return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath });
+    },
     onCheckCookies: async () => {
       log.info("Checking browser cookies via OpenClaw CLI...");
       const sysNode = findSystemNode();

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, FileText, Video, Image, Music, Search, Loader2 } from "lucide-react";
+import { Plus, FileText, Video, Image, Music, Search, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 
 type ContentType = "all" | "TEXT" | "VIDEO" | "IMAGE" | "AUDIO";
 type ContentStatus = "DRAFT" | "ADAPTED" | "REVIEWING" | "PUBLISHING" | "PUBLISHED" | "FAILED";
@@ -42,32 +43,54 @@ const filterTabs: { key: ContentType; label: string }[] = [
   { key: "AUDIO", label: "音频" },
 ];
 
+const statusTabs: { key: string; label: string }[] = [
+  { key: "all", label: "全部状态" },
+  { key: "DRAFT", label: "草稿" },
+  { key: "PUBLISHING", label: "发布中" },
+  { key: "PUBLISHED", label: "已发布" },
+  { key: "FAILED", label: "失败" },
+];
+
 export default function ContentPage() {
+  const router = useRouter();
   const [filter, setFilter] = useState<ContentType>("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const pageSize = 20;
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (filter !== "all") params.set("type", filter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
       if (search) params.set("q", search);
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
       const res = await fetch(`/api/content?${params.toString()}`);
       const data = await res.json();
       setItems(data.items || []);
       setTotal(data.total || 0);
+      setTotalPages(data.totalPages || 1);
     } catch {
       // ignore
     }
     setLoading(false);
-  }, [filter, search]);
+  }, [filter, statusFilter, search, page]);
 
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [filter, statusFilter, search]);
 
   return (
     <div className="space-y-6">
@@ -104,6 +127,15 @@ export default function ContentPage() {
             </button>
           ))}
         </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        >
+          {statusTabs.map((tab) => (
+            <option key={tab.key} value={tab.key}>{tab.label}</option>
+          ))}
+        </select>
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
@@ -129,38 +161,53 @@ export default function ContentPage() {
             return (
               <div
                 key={item.id}
-                className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-white p-4 hover:shadow-md hover:shadow-gray-100/80 transition-all"
+                onClick={() => router.push(`/content/${item.id}`)}
+                className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-white p-4 hover:shadow-md hover:shadow-gray-100/80 transition-all cursor-pointer"
               >
-                <div
-                  className={`h-10 w-10 rounded-xl ${tc.bg} flex items-center justify-center`}
-                >
+                <div className={`h-10 w-10 rounded-xl ${tc.bg} flex items-center justify-center`}>
                   <Icon className={`h-5 w-5 ${tc.color}`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-900 truncate">
-                    {item.title}
-                  </div>
+                  <div className="font-medium text-gray-900 truncate">{item.title}</div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    {item.platforms.join(", ")} &middot;{" "}
+                    {item.platforms.length > 0 ? item.platforms.join(", ") : "未指定平台"} &middot;{" "}
                     {new Date(item.updatedAt).toLocaleDateString("zh-CN")}
                   </div>
                 </div>
-                <span
-                  className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}
-                >
+                <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                   {sc.label}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  查看
-                </Button>
               </div>
             );
           })}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl border-gray-200"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm text-gray-500">
+                {page} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl border-gray-200"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="rounded-2xl border border-gray-100 bg-white py-16 text-center">

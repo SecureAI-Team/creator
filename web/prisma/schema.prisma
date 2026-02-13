@@ -36,6 +36,7 @@ model User {
   contentItems       ContentItem[]
   cronJobs           UserCronJob[]
   telegramBinding    TelegramBinding?
+  platformMetrics    PlatformMetrics[]
 
   @@map("users")
 }
@@ -230,6 +231,7 @@ model PublishRecord {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([contentItemId, platform])
   @@map("publish_records")
 }
 
@@ -238,6 +240,35 @@ enum PublishStatus {
   PUBLISHING
   PUBLISHED
   FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Platform Metrics (per user per platform, daily snapshots)
+// ---------------------------------------------------------------------------
+
+model PlatformMetrics {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform String // e.g. "bilibili", "weixin-mp"
+  date     DateTime @db.Date // snapshot date (one row per day per platform)
+
+  // Common metrics across platforms
+  followers    Int @default(0) // 粉丝数
+  totalViews   Int @default(0) // 总播放/阅读量
+  totalLikes   Int @default(0) // 总点赞
+  totalComments Int @default(0) // 总评论
+  totalShares  Int @default(0) // 总转发/分享
+  contentCount Int @default(0) // 作品/文章总数
+
+  // Platform-specific raw data stored as JSON
+  rawData      Json? // full platform-specific metrics
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, platform, date])
+  @@map("platform_metrics")
 }
 
 // ---------------------------------------------------------------------------
