@@ -99,26 +99,28 @@ export default function PlatformsPage() {
 
   const scheduleTimeoutEscalation = (key: string) => {
     clearLoginTimers(key);
-    const t8 = setTimeout(async () => {
+    // 30s: show warning hint (login requires user interaction, give it time)
+    const t30 = setTimeout(async () => {
       const status = await refreshConnection(key);
       if (status !== "CONNECTED") {
         setLoginHints((prev) => ({
           ...prev,
-          [key]: "8s 内未确认浏览器登录页，自动切换 VNC 备用通道...",
+          [key]: "登录尚未完成，请在本地弹出的浏览器中继续操作。如本地浏览器未弹出，可等待自动切换 VNC。",
+        }));
+      }
+    }, 30_000);
+    // 90s: auto-open VNC fallback if still not connected
+    const t90 = setTimeout(async () => {
+      const status = await refreshConnection(key);
+      if (status !== "CONNECTED") {
+        setLoginHints((prev) => ({
+          ...prev,
+          [key]: "90s 内未完成登录，已自动切换 VNC 备用通道，请在 VNC 窗口中完成登录",
         }));
         openVncFallback(key);
       }
-    }, 8_000);
-    const t20 = setTimeout(async () => {
-      const status = await refreshConnection(key);
-      if (status !== "CONNECTED") {
-        setLoginHints((prev) => ({
-          ...prev,
-          [key]: "20s 仍未完成登录，请在已打开的 VNC 窗口完成登录（流程不会中断）",
-        }));
-      }
-    }, 20_000);
-    loginTimersRef.current[key] = [t8, t20];
+    }, 90_000);
+    loginTimersRef.current[key] = [t30, t90];
   };
 
   const handleLogin = async (key: string) => {

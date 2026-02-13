@@ -737,6 +737,23 @@ ipcMain.handle("set-api-key", async (_event, { provider, key }) => {
   if (provider === "dashscope") {
     store.set("dashscopeApiKey", key || "");
     log.info(`DashScope API key ${key ? "saved" : "cleared"} in settings`);
+
+    // Restart OpenClaw so it picks up the new API key in its environment
+    if (openclawProcess) {
+      log.info("Restarting OpenClaw to apply new API key...");
+      openclawCrashCount = 0;
+      keepLocalOpenClawAlive = true;
+      try { openclawProcess.kill(); } catch {}
+      // Give the old process a moment to exit, then restart
+      setTimeout(() => {
+        startLocalOpenClawInternal().then(result => {
+          log.info("OpenClaw restart after API key change:", result ? "success" : "failed");
+        }).catch(err => {
+          log.error("OpenClaw restart after API key change error:", err.message);
+        });
+      }, 1500);
+    }
+
     return true;
   }
   return false;
