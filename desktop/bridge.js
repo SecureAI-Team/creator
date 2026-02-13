@@ -433,13 +433,18 @@ function createBridge(serverUrl, options = {}) {
 
           if (rpcOk) {
             try {
+              // browser.request expects HTTP-like method + path
+              const domain = markers.domain.replace(/^\./, "");
               const result = await gatewayRPC.request("browser.request", {
-                action: "cookies",
+                method: "GET",
+                path: `/cookies?url=https://${domain}`,
                 profile: "openclaw",
-                urls: [`https://${markers.domain.replace(/^\./, "")}`],
               }, { timeoutMs: 15000 });
-              cookies = Array.isArray(result) ? result : (result?.cookies || result?.data || []);
-              bLog.info(`[${requestId}] RPC cookies returned ${cookies.length} cookie(s)`);
+              // Response may be: array of cookies, or { cookies: [...] }, or { data: [...] }
+              const raw = result?.body || result?.data || result;
+              const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+              cookies = Array.isArray(parsed) ? parsed : (parsed?.cookies || []);
+              bLog.info(`[${requestId}] RPC cookies returned ${cookies.length} cookie(s) for ${domain}`);
             } catch (rpcErr) {
               bLog.warn(`[${requestId}] RPC cookie fetch failed: ${rpcErr.message}, trying CLI fallback`);
             }
@@ -447,8 +452,9 @@ function createBridge(serverUrl, options = {}) {
 
           // Fallback to CLI if RPC returned no cookies
           if (cookies.length === 0 && typeof options.onCheckCookies === "function") {
-            bLog.info(`[${requestId}] Trying CLI cookie fallback...`);
-            cookies = await options.onCheckCookies();
+            const domain = markers.domain.replace(/^\./, "");
+            bLog.info(`[${requestId}] Trying CLI cookie fallback for ${domain}...`);
+            cookies = await options.onCheckCookies(domain);
           }
 
           // Check if any marker cookie exists for this platform

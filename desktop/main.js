@@ -778,8 +778,8 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       }
       return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir });
     },
-    onCheckCookies: async () => {
-      log.info("Checking browser cookies via OpenClaw CLI...");
+    onCheckCookies: async (domain) => {
+      log.info(`Checking browser cookies via OpenClaw CLI${domain ? ` for ${domain}` : ""}...`);
       const sysNode = findSystemNode();
       const ocPath = getOpenClawPath();
       if (!sysNode || !fs.existsSync(ocPath)) {
@@ -789,7 +789,9 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       try {
         const { execSync } = require("child_process");
         const wsDir = getWorkspaceDir();
-        const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile openclaw --json`;
+        const urlArg = domain ? ` --url "https://${domain}"` : "";
+        const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile openclaw --json${urlArg}`;
+        log.info(`Exec: ${cmd}`);
         const apiKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
         const result = execSync(cmd, {
           timeout: 15000,
@@ -798,7 +800,9 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
           cwd: wsDir,
           env: { ...process.env, OPENCLAW_HOME: wsDir, DASHSCOPE_API_KEY: apiKey },
         });
-        const cookies = JSON.parse(result.toString().trim());
+        const output = result.toString().trim();
+        log.info(`CLI cookies raw output (${output.length} chars): ${output.substring(0, 200)}`);
+        const cookies = JSON.parse(output);
         log.info(`Retrieved ${Array.isArray(cookies) ? cookies.length : 0} cookies from OpenClaw browser`);
         return Array.isArray(cookies) ? cookies : [];
       } catch (err) {
