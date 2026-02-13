@@ -39,7 +39,7 @@ services:
       target: builder
     container_name: creator-db-init
     working_dir: /app
-    command: ["sh", "-c", "npx prisma db push --skip-generate && npx tsx prisma/seed.ts"]
+    command: ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && npx tsx prisma/seed.ts"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-creator}:${POSTGRES_PASSWORD:-creator_password}@postgres:5432/${POSTGRES_DB:-creator_saas}?schema=public
     depends_on:
