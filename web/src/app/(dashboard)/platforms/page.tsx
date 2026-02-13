@@ -214,21 +214,39 @@ export default function PlatformsPage() {
   const handleConfirmLogin = async (key: string) => {
     setCheckLoading(key);
     try {
-      const res = await fetch(`/api/platforms/${key}/confirm`, { method: "POST" });
-      const data = await res.json();
-      if (data.status === "CONNECTED") {
+      // First: verify via cookie check (goes through bridge → OpenClaw browser cookies)
+      const checkRes = await fetch(`/api/platforms/${key}/check`);
+      const checkData = await checkRes.json();
+
+      if (checkData.status === "CONNECTED") {
         setConnections((prev) => ({
           ...prev,
           [key]: { status: "CONNECTED", lastChecked: new Date().toISOString() },
         }));
         clearLoginTimers(key);
         setLocalBrowserOpened((prev) => ({ ...prev, [key]: false }));
-        setLoginHints((prev) => ({ ...prev, [key]: "✓ 登录状态已确认" }));
+        setLoginHints((prev) => ({ ...prev, [key]: "✓ 登录状态已通过 Cookie 验证" }));
       } else {
-        setLoginHints((prev) => ({
-          ...prev,
-          [key]: data.message || "已标记，请稍后检查状态",
-        }));
+        // Cookie check didn't find session — fallback: mark as connected (user confirmed)
+        const confirmRes = await fetch(`/api/platforms/${key}/confirm`, { method: "POST" });
+        const confirmData = await confirmRes.json();
+        if (confirmData.status === "CONNECTED") {
+          setConnections((prev) => ({
+            ...prev,
+            [key]: { status: "CONNECTED", lastChecked: new Date().toISOString() },
+          }));
+          clearLoginTimers(key);
+          setLocalBrowserOpened((prev) => ({ ...prev, [key]: false }));
+          setLoginHints((prev) => ({
+            ...prev,
+            [key]: "✓ 已标记为已登录（未检测到 Cookie，可能需要重新登录）",
+          }));
+        } else {
+          setLoginHints((prev) => ({
+            ...prev,
+            [key]: "标记失败，请重试",
+          }));
+        }
       }
     } catch {
       setLoginHints((prev) => ({ ...prev, [key]: "确认失败，请重试" }));

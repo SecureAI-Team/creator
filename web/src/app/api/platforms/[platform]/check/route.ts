@@ -31,15 +31,7 @@ export const GET = auth(async function GET(req) {
       where: { userId_platformKey: { userId, platformKey: platform } },
     });
 
-    if (!connection) {
-      return NextResponse.json({
-        platform,
-        status: "DISCONNECTED",
-        lastChecked: null,
-      });
-    }
-
-    // If instance is running, ask it to check the platform status
+    // Always try live cookie check via bridge/OpenClaw when instance is available
     if (instanceStatus.status === "running") {
       try {
         const reply = await sendMessage(userId, `/status ${platform}`);
@@ -50,9 +42,16 @@ export const GET = auth(async function GET(req) {
 
         const newStatus = isConnected ? "CONNECTED" : "EXPIRED";
 
-        await prisma.platformConnection.update({
-          where: { id: connection.id },
-          data: { status: newStatus, lastChecked: new Date() },
+        // Upsert: create record if it doesn't exist, update if it does
+        await prisma.platformConnection.upsert({
+          where: { userId_platformKey: { userId, platformKey: platform } },
+          update: { status: newStatus, lastChecked: new Date() },
+          create: {
+            userId,
+            platformKey: platform,
+            status: newStatus,
+            lastChecked: new Date(),
+          },
         });
 
         return NextResponse.json({
@@ -62,14 +61,15 @@ export const GET = auth(async function GET(req) {
           message: reply,
         });
       } catch {
-        // OpenClaw command failed, return stored status
+        // OpenClaw command failed, fall through to stored status
       }
     }
 
+    // Fall back to stored status
     return NextResponse.json({
       platform,
-      status: connection.status,
-      lastChecked: connection.lastChecked,
+      status: connection?.status ?? "DISCONNECTED",
+      lastChecked: connection?.lastChecked ?? null,
     });
   } catch (error) {
     console.error("[platforms/check] Error:", error);

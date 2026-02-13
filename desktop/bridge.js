@@ -336,11 +336,67 @@ function createBridge(serverUrl, options = {}) {
     toutiao: "https://mp.toutiao.com",
   };
 
+  // Platform cookie identifiers used to detect login status
+  const PLATFORM_COOKIE_MARKERS = {
+    bilibili: { domain: ".bilibili.com", names: ["SESSDATA", "bili_jct"] },
+    douyin: { domain: ".douyin.com", names: ["sessionid", "passport_csrf_token"] },
+    xiaohongshu: { domain: ".xiaohongshu.com", names: ["web_session", "a1"] },
+    youtube: { domain: ".youtube.com", names: ["SID", "SSID"] },
+    "weixin-mp": { domain: ".qq.com", names: ["slave_sid", "slave_user"] },
+    "weixin-channels": { domain: ".qq.com", names: ["slave_sid", "slave_user"] },
+    kuaishou: { domain: ".kuaishou.com", names: ["passToken", "kuaishou.server.web_st"] },
+    zhihu: { domain: ".zhihu.com", names: ["z_c0"] },
+    weibo: { domain: ".weibo.com", names: ["SUB", "SUBP"] },
+    toutiao: { domain: ".toutiao.com", names: ["sso_uid_tt", "sessionid"] },
+  };
+
   async function handleAgentMessage(msg) {
     const { message, requestId } = msg;
     bLog.info(`[${requestId}] Agent message: ${message}`);
 
     const isLogin = typeof message === "string" && message.startsWith("/login ");
+    const isStatus = typeof message === "string" && message.startsWith("/status ");
+
+    // ---- For /status commands: check cookies directly, bypass AI ----
+    if (isStatus) {
+      const platform = message.replace("/status ", "").trim().toLowerCase();
+      const markers = PLATFORM_COOKIE_MARKERS[platform];
+      bLog.info(`[${requestId}] Status check for ${platform} (cookie-based)`);
+      sendAck(requestId, "received");
+      emit({ type: "ack", requestId, stage: "received", message });
+
+      if (markers && typeof options.onCheckCookies === "function") {
+        try {
+          const cookies = await options.onCheckCookies();
+          // Check if any marker cookie exists for this platform
+          const found = cookies.filter(
+            (c) => c.domain && c.domain.includes(markers.domain) && markers.names.includes(c.name)
+          );
+          const loggedIn = found.length > 0;
+          const reply = loggedIn
+            ? `已登录 ${platform} (found ${found.map((c) => c.name).join(", ")})`
+            : `未登录 ${platform} (no session cookies for ${markers.domain})`;
+          bLog.info(`[${requestId}] ${reply}`);
+
+          sendAck(requestId, "local_response");
+          emit({ type: "ack", requestId, stage: "local_response", message });
+          emit({ type: "response", requestId, ok: true, message, reply });
+          sendResponse(requestId, reply);
+        } catch (err) {
+          bLog.error(`[${requestId}] Cookie check failed: ${err.message}`);
+          const reply = `未登录 ${platform} (cookie check error)`;
+          sendAck(requestId, "local_response");
+          emit({ type: "response", requestId, ok: true, message, reply });
+          sendResponse(requestId, reply);
+        }
+      } else {
+        const reply = `未登录 ${platform} (no cookie checker available)`;
+        sendAck(requestId, "local_response");
+        emit({ type: "response", requestId, ok: true, message, reply });
+        sendResponse(requestId, reply);
+      }
+      return;
+    }
 
     // ---- For /login commands: directly open the browser, bypass AI ----
     if (isLogin) {

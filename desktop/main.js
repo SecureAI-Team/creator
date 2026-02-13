@@ -737,9 +737,50 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
     localOpenClawPort: () => localOpenClawPort,
     localGatewayToken: () => localGatewayToken,
     onTaskEvent: persistTaskEvent,
+    onCheckCookies: async () => {
+      log.info("Checking browser cookies via OpenClaw CLI...");
+      const sysNode = findSystemNode();
+      const ocPath = getOpenClawPath();
+      if (!sysNode || !fs.existsSync(ocPath)) {
+        log.warn("OpenClaw or system Node.js not available for cookie check");
+        return [];
+      }
+      try {
+        const { execSync } = require("child_process");
+        const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile openclaw --json`;
+        const result = execSync(cmd, { timeout: 15000, stdio: "pipe", windowsHide: true });
+        const cookies = JSON.parse(result.toString().trim());
+        log.info(`Retrieved ${Array.isArray(cookies) ? cookies.length : 0} cookies from OpenClaw browser`);
+        return Array.isArray(cookies) ? cookies : [];
+      } catch (err) {
+        log.error(`Cookie check failed: ${err.message}`);
+        return [];
+      }
+    },
     onOpenUrl: async (url) => {
-      log.info(`Opening URL in default browser: ${url}`);
-      await shell.openExternal(url);
+      log.info(`Opening URL in OpenClaw managed browser: ${url}`);
+      const sysNode = findSystemNode();
+      if (!sysNode) {
+        log.warn("System Node.js not found, falling back to default browser");
+        await shell.openExternal(url);
+        return;
+      }
+      const ocPath = getOpenClawPath();
+      if (!fs.existsSync(ocPath)) {
+        log.warn("OpenClaw not installed, falling back to default browser");
+        await shell.openExternal(url);
+        return;
+      }
+      try {
+        const { execSync } = require("child_process");
+        const cmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile openclaw`;
+        log.info(`Exec: ${cmd}`);
+        execSync(cmd, { timeout: 30000, stdio: "pipe", windowsHide: true });
+        log.info("OpenClaw browser opened successfully");
+      } catch (err) {
+        log.error(`OpenClaw browser open failed: ${err.message}, falling back to default browser`);
+        await shell.openExternal(url);
+      }
     },
     logger: logger.createTaggedLogger("Bridge"),
   });
