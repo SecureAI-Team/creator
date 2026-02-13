@@ -1,28 +1,24 @@
 /**
  * WeChat Official Account (微信公众号) creator dashboard data collector.
  *
- * Navigates to:
- *   1. https://mp.weixin.qq.com  (公众号后台首页)
- *   2. 数据分析 → 用户分析 (粉丝数据)
- *   3. 数据分析 → 内容分析 (阅读数据)
+ * Navigates to https://mp.weixin.qq.com (公众号后台首页) and extracts
+ * metrics from the home page accessibility snapshot.
  *
- * WeChat MP backend is a traditional multi-page app with these key URLs:
- *   - Home: https://mp.weixin.qq.com
- *   - User analysis: https://mp.weixin.qq.com/cgi-bin/user_tag?action=get_all_data&lang=zh_CN&token=XXX
- *   - Content analysis: https://mp.weixin.qq.com/misc/appmsganalysis?...
+ * The home page shows:
+ *   - 原创内容 "9"          → contentCount
+ *   - 总用户数 "4"          → followers
+ *   - 昨日阅读(人) "2"     → totalViews
+ *   - 昨日分享(人) "0"     → totalShares
+ *   - 昨日新增关注(人) "0"
  *
- * Since WeChat MP URLs require a session token parameter, we navigate
- * to the homepage first, then use link-clicking to reach data pages.
- *
- * Strategy: navigate to home → snapshot → look for data sidebar → click → snapshot → parse.
+ * No navigation clicks needed — all key data is on the home page.
  */
 
-const { parseChineseNumber, findMetric } = require("./bilibili-data");
+const { findMetric } = require("./bilibili-data");
 
 /**
  * Collect data from WeChat Official Account dashboard.
  * @param {object} helpers - { navigate, open, snapshot, click, screenshot, sleep, ... }
- * @returns {Promise<{ followers, totalViews, totalLikes, totalComments, totalShares, contentCount, rawData }>}
  */
 async function collect(helpers) {
   const result = {
@@ -55,83 +51,21 @@ async function collect(helpers) {
   if (homeText) {
     result.rawData.homeSnapshot = homeText.substring(0, 5000);
 
-    // WeChat MP home page shows (from accessibility tree):
-    //   原创内容 "9"  → contentCount
-    //   总用户数 "4"  → followers
-    //   昨日阅读(人) "2"  → totalViews
-    //   昨日分享(人) "0"  → totalShares
-    //   昨日新增关注(人) "0"
-    result.followers = findMetric(homeText, ["总用户数", "累计关注", "总关注", "粉丝总数"]);
+    // Extract metrics from home page accessibility tree
+    result.followers = findMetric(homeText, ["总用户数", "累计关注", "总关注"]);
     result.totalViews = findMetric(homeText, ["昨日阅读", "阅读量", "总阅读"]);
     result.totalShares = findMetric(homeText, ["昨日分享", "分享次数"]);
     result.contentCount = findMetric(homeText, ["原创内容", "已发表", "文章数"]);
+    result.totalLikes = findMetric(homeText, ["点赞", "在看"]);
+    result.totalComments = findMetric(homeText, ["评论", "留言"]);
 
-    // Also check for recent follower growth
-    const newFollowers = findMetric(homeText, ["昨日新增关注", "新增关注", "新关注", "净增关注"]);
+    const newFollowers = findMetric(homeText, ["昨日新增关注", "新增关注"]);
     if (newFollowers > 0) {
       result.rawData.newFollowers = newFollowers;
     }
   }
 
-  // ---- Step 3: Try to navigate to data analysis pages ----
-  // WeChat MP sidebar usually has: 首页 > 内容与互动 > 数据分析
-  try {
-    // Try clicking the "数据分析" menu item
-    try {
-      helpers.click('a:has-text("数据分析")');
-      await helpers.sleep(3000);
-    } catch {
-      // If direct click fails, try navigating via menu
-      try {
-        helpers.click('text="数据分析"');
-        await helpers.sleep(3000);
-      } catch {}
-    }
-
-    const dataText = helpers.snapshot();
-    if (dataText) {
-      result.rawData.dataSnapshot = dataText.substring(0, 5000);
-
-      // Data analysis page shows:
-      // 用户分析: 新增关注、取消关注、净增关注、累计关注
-      // 图文分析: 送达人数、阅读次数、阅读人数、分享转发次数、微信收藏次数
-      if (result.followers === 0) {
-        result.followers = findMetric(dataText, ["累计关注", "总关注"]);
-      }
-      if (result.totalViews === 0) {
-        result.totalViews = findMetric(dataText, ["阅读次数", "阅读人数", "总阅读"]);
-      }
-      result.totalShares = findMetric(dataText, ["分享转发", "转发次数", "分享次数"]);
-      result.totalLikes = findMetric(dataText, ["点赞", "在看", "好看"]);
-      result.totalComments = findMetric(dataText, ["评论", "留言"]);
-    }
-  } catch {
-    // Non-critical navigation failures
-  }
-
-  // ---- Step 4: Try content management page for content count ----
-  try {
-    try {
-      helpers.click('a:has-text("内容与互动")');
-      await helpers.sleep(2000);
-    } catch {
-      try {
-        helpers.click('text="图文消息"');
-        await helpers.sleep(2000);
-      } catch {}
-    }
-
-    const contentText = helpers.snapshot();
-    if (contentText) {
-      result.rawData.contentSnapshot = contentText.substring(0, 3000);
-      // Look for total article count
-      if (result.contentCount === 0) {
-        result.contentCount = findMetric(contentText, ["共", "已发表", "已群发", "篇"]);
-      }
-    }
-  } catch {}
-
-  // ---- Step 5: Screenshot for debugging ----
+  // ---- Step 3: Screenshot for debugging ----
   try {
     helpers.screenshot();
   } catch {}
