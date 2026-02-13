@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendMessage } from "@/lib/openclaw";
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
 /**
  * POST /api/data/refresh
@@ -65,7 +66,7 @@ export const POST = auth(async function POST(req) {
               totalComments: data.totalComments || 0,
               totalShares: data.totalShares || 0,
               contentCount: data.contentCount || 0,
-              rawData: data.rawData ?? undefined,
+              rawData: (data.rawData as Prisma.InputJsonValue) ?? undefined,
             },
             create: {
               userId,
@@ -77,7 +78,7 @@ export const POST = auth(async function POST(req) {
               totalComments: data.totalComments || 0,
               totalShares: data.totalShares || 0,
               contentCount: data.contentCount || 0,
-              rawData: data.rawData ?? undefined,
+              rawData: (data.rawData as Prisma.InputJsonValue) ?? undefined,
             },
           });
           storedPlatforms.push(platformKey);
