@@ -37,6 +37,7 @@ export default function PlatformsPage() {
   const [checkLoading, setCheckLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasBridge, setHasBridge] = useState(false);
+  const [localBrowserOpened, setLocalBrowserOpened] = useState<Record<string, boolean>>({});
   const loginTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
   const fallbackOpenedRef = useRef<Record<string, boolean>>({});
 
@@ -97,25 +98,38 @@ export default function PlatformsPage() {
     window.open("/vnc?platform=" + key + "&forceVnc=1", "_blank", "width=1300,height=850");
   };
 
-  const scheduleTimeoutEscalation = (key: string) => {
+  const scheduleTimeoutEscalation = (key: string, isLocalBrowser: boolean) => {
     clearLoginTimers(key);
-    // 30s: show warning hint (login requires user interaction, give it time)
+
+    if (isLocalBrowser) {
+      // Local browser opened — user is logging in on their own machine.
+      // Do NOT auto-open VNC. Just show a gentle reminder after 30s.
+      const t30 = setTimeout(() => {
+        setLoginHints((prev) => ({
+          ...prev,
+          [key]: "请在本地浏览器中完成登录（如扫码等），完成后点击下方「我已完成登录」。",
+        }));
+      }, 30_000);
+      loginTimersRef.current[key] = [t30];
+      return;
+    }
+
+    // Non-local (server-side) mode: keep the old VNC escalation
     const t30 = setTimeout(async () => {
       const status = await refreshConnection(key);
       if (status !== "CONNECTED") {
         setLoginHints((prev) => ({
           ...prev,
-          [key]: "登录尚未完成，请在本地弹出的浏览器中继续操作。如本地浏览器未弹出，可等待自动切换 VNC。",
+          [key]: "登录尚未完成，请在弹出的浏览器中继续操作。",
         }));
       }
     }, 30_000);
-    // 90s: auto-open VNC fallback if still not connected
     const t90 = setTimeout(async () => {
       const status = await refreshConnection(key);
       if (status !== "CONNECTED") {
         setLoginHints((prev) => ({
           ...prev,
-          [key]: "90s 内未完成登录，已自动切换 VNC 备用通道，请在 VNC 窗口中完成登录",
+          [key]: "90s 内未完成登录，已自动切换 VNC 备用通道",
         }));
         openVncFallback(key);
       }
@@ -153,11 +167,18 @@ export default function PlatformsPage() {
         }));
         openVncFallback(key);
       } else {
+        // Local browser was opened successfully
+        const isLocal = loginData?.mode === "local";
+        if (isLocal) {
+          setLocalBrowserOpened((prev) => ({ ...prev, [key]: true }));
+        }
         setLoginHints((prev) => ({
           ...prev,
-          [key]: loginData?.message || "本地已接收指令，请在弹出的浏览器中登录",
+          [key]: isLocal
+            ? "已在本地浏览器中打开登录页面，请完成登录后点击「我已完成登录」"
+            : (loginData?.message || "本地已接收指令，请在弹出的浏览器中登录"),
         }));
-        scheduleTimeoutEscalation(key);
+        scheduleTimeoutEscalation(key, isLocal);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "启动登录失败";
@@ -186,6 +207,31 @@ export default function PlatformsPage() {
       }
     } catch {
       // ignore
+    }
+    setCheckLoading(null);
+  };
+
+  const handleConfirmLogin = async (key: string) => {
+    setCheckLoading(key);
+    try {
+      const res = await fetch(`/api/platforms/${key}/confirm`, { method: "POST" });
+      const data = await res.json();
+      if (data.status === "CONNECTED") {
+        setConnections((prev) => ({
+          ...prev,
+          [key]: { status: "CONNECTED", lastChecked: new Date().toISOString() },
+        }));
+        clearLoginTimers(key);
+        setLocalBrowserOpened((prev) => ({ ...prev, [key]: false }));
+        setLoginHints((prev) => ({ ...prev, [key]: "✓ 登录状态已确认" }));
+      } else {
+        setLoginHints((prev) => ({
+          ...prev,
+          [key]: data.message || "已标记，请稍后检查状态",
+        }));
+      }
+    } catch {
+      setLoginHints((prev) => ({ ...prev, [key]: "确认失败，请重试" }));
     }
     setCheckLoading(null);
   };
@@ -296,6 +342,21 @@ export default function PlatformsPage() {
                       <MonitorPlay className="h-3.5 w-3.5 mr-1.5" />
                       {loginLoading === platform.key ? "正在打开..." : "登录"}
                     </Button>
+                    {localBrowserOpened[platform.key] && (
+                      <Button
+                        size="sm"
+                        className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-sm"
+                        onClick={() => handleConfirmLogin(platform.key)}
+                        disabled={checkLoading === platform.key}
+                      >
+                        {checkLoading === platform.key ? (
+                          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                        )}
+                        我已完成登录
+                      </Button>
+                    )}
                     {hasBridge && (
                       <Button
                         variant="outline"
