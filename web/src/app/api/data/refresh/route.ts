@@ -65,7 +65,7 @@ export const POST = auth(async function POST(req) {
               totalComments: data.totalComments || 0,
               totalShares: data.totalShares || 0,
               contentCount: data.contentCount || 0,
-              rawData: data.rawData || null,
+              rawData: data.rawData ?? undefined,
             },
             create: {
               userId,
@@ -77,7 +77,7 @@ export const POST = auth(async function POST(req) {
               totalComments: data.totalComments || 0,
               totalShares: data.totalShares || 0,
               contentCount: data.contentCount || 0,
-              rawData: data.rawData || null,
+              rawData: data.rawData ?? undefined,
             },
           });
           storedPlatforms.push(platformKey);
