@@ -36,10 +36,10 @@ export async function POST(request: NextRequest) {
     for (const platformKey of platforms) {
       await prisma.platformConnection.upsert({
         where: {
-          userId_platformKey: { userId, platformKey },
+          userId_platformKey_accountId: { userId, platformKey, accountId: "default" },
         },
         update: {},
-        create: { userId, platformKey },
+        create: { userId, platformKey, accountId: "default" },
       });
     }
 

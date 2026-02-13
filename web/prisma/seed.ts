@@ -91,12 +91,13 @@ async function main() {
   for (const platform of demoPlatforms) {
     await prisma.platformConnection.upsert({
       where: {
-        userId_platformKey: { userId: demo.id, platformKey: platform },
+        userId_platformKey_accountId: { userId: demo.id, platformKey: platform, accountId: "default" },
       },
       update: {},
       create: {
         userId: demo.id,
         platformKey: platform,
+        accountId: "default",
         status: "DISCONNECTED",
       },
     });

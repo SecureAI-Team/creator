@@ -28,7 +28,7 @@ export const GET = auth(async function GET(req) {
 
     // Get stored platform connection from DB
     const connection = await prisma.platformConnection.findUnique({
-      where: { userId_platformKey: { userId, platformKey: platform } },
+      where: { userId_platformKey_accountId: { userId, platformKey: platform, accountId: "default" } },
     });
 
     // Always try live cookie check via bridge/OpenClaw when instance is available
@@ -44,11 +44,12 @@ export const GET = auth(async function GET(req) {
 
         // Upsert: create record if it doesn't exist, update if it does
         await prisma.platformConnection.upsert({
-          where: { userId_platformKey: { userId, platformKey: platform } },
+          where: { userId_platformKey_accountId: { userId, platformKey: platform, accountId: "default" } },
           update: { status: newStatus, lastChecked: new Date() },
           create: {
             userId,
             platformKey: platform,
+            accountId: "default",
             status: newStatus,
             lastChecked: new Date(),
           },

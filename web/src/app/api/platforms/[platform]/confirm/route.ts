@@ -25,7 +25,7 @@ export const POST = auth(async function POST(req) {
   try {
     // Upsert the platform connection as CONNECTED
     await prisma.platformConnection.upsert({
-      where: { userId_platformKey: { userId, platformKey: platform } },
+      where: { userId_platformKey_accountId: { userId, platformKey: platform, accountId: "default" } },
       update: {
         status: "CONNECTED",
         lastChecked: new Date(),
@@ -33,6 +33,7 @@ export const POST = auth(async function POST(req) {
       create: {
         userId,
         platformKey: platform,
+        accountId: "default",
         status: "CONNECTED",
         lastChecked: new Date(),
       },
