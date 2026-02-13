@@ -417,17 +417,40 @@ function createBridge(serverUrl, options = {}) {
       return;
     }
 
-    // ---- For /status commands: check cookies directly, bypass AI ----
+    // ---- For /status commands: check cookies via Gateway RPC ----
     if (isStatus) {
       const platform = message.replace("/status ", "").trim().toLowerCase();
       const markers = PLATFORM_COOKIE_MARKERS[platform];
-      bLog.info(`[${requestId}] Status check for ${platform} (cookie-based)`);
+      bLog.info(`[${requestId}] Status check for ${platform} (cookie-based via RPC)`);
       sendAck(requestId, "received");
       emit({ type: "ack", requestId, stage: "received", message });
 
-      if (markers && typeof options.onCheckCookies === "function") {
+      if (markers) {
         try {
-          const cookies = await options.onCheckCookies();
+          // Use Gateway RPC to get cookies from the running browser instance
+          const rpcOk = await gatewayRPC.ensureConnected(5000);
+          let cookies = [];
+
+          if (rpcOk) {
+            try {
+              const result = await gatewayRPC.request("browser.request", {
+                action: "cookies",
+                profile: "openclaw",
+                urls: [`https://${markers.domain.replace(/^\./, "")}`],
+              }, { timeoutMs: 15000 });
+              cookies = Array.isArray(result) ? result : (result?.cookies || result?.data || []);
+              bLog.info(`[${requestId}] RPC cookies returned ${cookies.length} cookie(s)`);
+            } catch (rpcErr) {
+              bLog.warn(`[${requestId}] RPC cookie fetch failed: ${rpcErr.message}, trying CLI fallback`);
+            }
+          }
+
+          // Fallback to CLI if RPC returned no cookies
+          if (cookies.length === 0 && typeof options.onCheckCookies === "function") {
+            bLog.info(`[${requestId}] Trying CLI cookie fallback...`);
+            cookies = await options.onCheckCookies();
+          }
+
           // Check if any marker cookie exists for this platform
           const found = cookies.filter(
             (c) => c.domain && c.domain.includes(markers.domain) && markers.names.includes(c.name)
@@ -435,7 +458,7 @@ function createBridge(serverUrl, options = {}) {
           const loggedIn = found.length > 0;
           const reply = loggedIn
             ? `已登录 ${platform} (found ${found.map((c) => c.name).join(", ")})`
-            : `未登录 ${platform} (no session cookies for ${markers.domain})`;
+            : `未登录 ${platform} (no session cookies for ${markers.domain}, checked ${cookies.length} total)`;
           bLog.info(`[${requestId}] ${reply}`);
 
           sendAck(requestId, "local_response");
@@ -444,13 +467,13 @@ function createBridge(serverUrl, options = {}) {
           sendResponse(requestId, reply);
         } catch (err) {
           bLog.error(`[${requestId}] Cookie check failed: ${err.message}`);
-          const reply = `未登录 ${platform} (cookie check error)`;
+          const reply = `未登录 ${platform} (cookie check error: ${err.message})`;
           sendAck(requestId, "local_response");
           emit({ type: "response", requestId, ok: true, message, reply });
           sendResponse(requestId, reply);
         }
       } else {
-        const reply = `未登录 ${platform} (no cookie checker available)`;
+        const reply = `未登录 ${platform} (unknown platform)`;
         sendAck(requestId, "local_response");
         emit({ type: "response", requestId, ok: true, message, reply });
         sendResponse(requestId, reply);

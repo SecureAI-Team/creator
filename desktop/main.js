@@ -790,12 +790,13 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
         const { execSync } = require("child_process");
         const wsDir = getWorkspaceDir();
         const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile openclaw --json`;
+        const apiKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
         const result = execSync(cmd, {
           timeout: 15000,
           stdio: "pipe",
           windowsHide: true,
           cwd: wsDir,
-          env: { ...process.env, OPENCLAW_HOME: wsDir },
+          env: { ...process.env, OPENCLAW_HOME: wsDir, DASHSCOPE_API_KEY: apiKey },
         });
         const cookies = JSON.parse(result.toString().trim());
         log.info(`Retrieved ${Array.isArray(cookies) ? cookies.length : 0} cookies from OpenClaw browser`);
@@ -822,6 +823,7 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       try {
         const { execSync } = require("child_process");
         const wsDir = getWorkspaceDir();
+        const apiKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
         const cmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile openclaw`;
         log.info(`Exec: ${cmd}`);
         execSync(cmd, {
@@ -829,7 +831,7 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
           stdio: "pipe",
           windowsHide: true,
           cwd: wsDir,
-          env: { ...process.env, OPENCLAW_HOME: wsDir },
+          env: { ...process.env, OPENCLAW_HOME: wsDir, DASHSCOPE_API_KEY: apiKey },
         });
         log.info("OpenClaw browser opened successfully");
       } catch (err) {
