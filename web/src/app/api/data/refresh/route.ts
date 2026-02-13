@@ -7,12 +7,12 @@ import type { Prisma } from "@prisma/client";
 /**
  * POST /api/data/refresh
  * Trigger data pull from platforms via the desktop bridge, then store results.
- * Body: { platform?: "bilibili" } (optional, refreshes all if omitted)
+ * Body: { platform?: "bilibili", accountId?: "default" }
  *
  * Flow:
- *   1. Send `/data refresh <platform>` to bridge → desktop → OpenClaw scraper
+ *   1. Send `/data refresh <platform>` to bridge -> desktop -> OpenClaw scraper
  *   2. Desktop returns structured metrics JSON
- *   3. Server stores metrics in PlatformMetrics (daily snapshots)
+ *   3. Server stores metrics in PlatformMetrics (daily snapshots, per account)
  */
 export const POST = auth(async function POST(req) {
   if (!req.auth?.user?.id) {
@@ -22,6 +22,7 @@ export const POST = auth(async function POST(req) {
   const userId = req.auth.user.id;
   const body = await req.json().catch(() => ({}));
   const platform = (body as Record<string, string>).platform;
+  const accountId = (body as Record<string, string>).accountId || "default";
 
   try {
     const command = platform
@@ -40,7 +41,7 @@ export const POST = auth(async function POST(req) {
         collectedData = parsed.platforms;
       }
     } catch {
-      // Reply was not JSON — might be a plain text response
+      // Reply was not JSON -- might be a plain text response
     }
 
     // Store collected metrics in database
@@ -52,12 +53,16 @@ export const POST = auth(async function POST(req) {
       for (const [platformKey, data] of Object.entries(collectedData)) {
         if (!data.success) continue;
 
+        // Each platform result may specify its own accountId, else use request-level
+        const acctId = data.accountId || accountId;
+
         try {
           await prisma.platformMetrics.upsert({
             where: {
-              userId_platform_date: {
+              userId_platform_accountId_date: {
                 userId,
                 platform: platformKey,
+                accountId: acctId,
                 date: today,
               },
             },
@@ -73,6 +78,7 @@ export const POST = auth(async function POST(req) {
             create: {
               userId,
               platform: platformKey,
+              accountId: acctId,
               date: today,
               followers: data.followers || 0,
               totalViews: data.totalViews || 0,
@@ -83,9 +89,9 @@ export const POST = auth(async function POST(req) {
               rawData: (data.rawData as Prisma.InputJsonValue) ?? undefined,
             },
           });
-          storedPlatforms.push(platformKey);
+          storedPlatforms.push(acctId === "default" ? platformKey : `${platformKey}:${acctId}`);
         } catch (err) {
-          console.error(`[data/refresh] Failed to store metrics for ${platformKey}:`, err);
+          console.error(`[data/refresh] Failed to store metrics for ${platformKey}:${acctId}:`, err);
         }
       }
     }
@@ -110,6 +116,7 @@ export const POST = auth(async function POST(req) {
 // Type for platform data from the desktop collector
 interface PlatformData {
   success: boolean;
+  accountId?: string;
   followers?: number;
   totalViews?: number;
   totalLikes?: number;

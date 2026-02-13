@@ -43,6 +43,7 @@ type ViewMode = "platform" | "content" | "trend";
 interface PlatformMetric {
   id: string;
   platform: string;
+  accountId: string;
   date: string;
   followers: number;
   totalViews: number;
@@ -66,14 +67,14 @@ interface PublishRecord {
 interface DataResponse {
   totals: { views: number; likes: number; comments: number; shares: number };
   records: PublishRecord[];
-  platforms: { platformKey: string; status: string }[];
+  platforms: { platformKey: string; accountId: string; accountName: string | null; status: string }[];
   platformMetrics: PlatformMetric[];
 }
 
 interface MetricsResponse {
   latest: Record<string, PlatformMetric>;
   growth: Record<string, { followers: number; views: number }>;
-  history: { platform: string; date: string; followers: number; totalViews: number; totalLikes: number }[];
+  history: { platform: string; accountId: string; date: string; followers: number; totalViews: number; totalLikes: number }[];
 }
 
 export default function DataPage() {
@@ -340,10 +341,16 @@ export default function DataPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {platformMetrics.map((m) => {
                       const pInfo = PLATFORMS.find((p) => p.key === m.platform);
-                      const growth = metrics?.growth?.[m.platform];
+                      const growthKey = `${m.platform}:${m.accountId || "default"}`;
+                      const growth = metrics?.growth?.[growthKey] || metrics?.growth?.[m.platform];
+                      // Find account name from platform connections
+                      const acctInfo = data?.platforms?.find(
+                        (p) => p.platformKey === m.platform && p.accountId === (m.accountId || "default")
+                      );
+                      const hasMultipleAccounts = platformMetrics.filter((pm) => pm.platform === m.platform).length > 1;
                       return (
                         <div
-                          key={m.platform}
+                          key={`${m.platform}:${m.accountId || "default"}`}
                           className="rounded-2xl border border-gray-100 bg-white p-5 hover:shadow-md hover:shadow-gray-100/80 transition-all"
                         >
                           <div className="flex items-center gap-3 mb-4">
@@ -353,7 +360,14 @@ export default function DataPage() {
                               {pInfo?.initial || "?"}
                             </div>
                             <div>
-                              <div className="font-semibold text-gray-900">{pInfo?.label || m.platform}</div>
+                              <div className="font-semibold text-gray-900">
+                                {pInfo?.label || m.platform}
+                                {hasMultipleAccounts && (
+                                  <span className="ml-2 text-xs font-normal text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-md">
+                                    {acctInfo?.accountName || m.accountId || "default"}
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-gray-400">
                                 更新于 {new Date(m.date).toLocaleDateString("zh-CN")}
                               </div>
@@ -402,7 +416,7 @@ export default function DataPage() {
                     点击「采集数据」从已连接的平台后台抓取最新数据
                   </p>
                   <p className="text-xs text-gray-300 mt-2">
-                    目前支持: 哔哩哔哩、微信公众号
+                    支持: 哔哩哔哩、微信公众号、抖音、小红书、快手、知乎
                   </p>
                 </div>
               )}

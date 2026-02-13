@@ -127,6 +127,8 @@ model PlatformConnection {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   platformKey String   // bilibili, douyin, youtube, etc.
+  accountId   String   @default("default") // distinguishes multiple accounts on same platform
+  accountName String?  // user-friendly label e.g. "GEO雷达", "个人号"
   status      PlatformStatus @default(DISCONNECTED)
   lastChecked DateTime?
   lastError   String?
@@ -136,7 +138,7 @@ model PlatformConnection {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([userId, platformKey])
+  @@unique([userId, platformKey, accountId])
   @@map("platform_connections")
 }
 
@@ -247,11 +249,12 @@ enum PublishStatus {
 // ---------------------------------------------------------------------------
 
 model PlatformMetrics {
-  id       String @id @default(cuid())
-  userId   String
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  platform String // e.g. "bilibili", "weixin-mp"
-  date     DateTime @db.Date // snapshot date (one row per day per platform)
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform  String // e.g. "bilibili", "weixin-mp"
+  accountId String @default("default") // distinguishes multiple accounts on same platform
+  date      DateTime @db.Date // snapshot date (one row per day per platform per account)
 
   // Common metrics across platforms
   followers    Int @default(0) // 粉丝数
@@ -267,7 +270,7 @@ model PlatformMetrics {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, platform, date])
+  @@unique([userId, platform, accountId, date])
   @@map("platform_metrics")
 }
 

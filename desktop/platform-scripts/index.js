@@ -133,6 +133,10 @@ async function publishToPlatform(platform, content, ctx) {
 const dataCollectors = {};
 try { dataCollectors.bilibili = require("./bilibili-data").collect; } catch {}
 try { dataCollectors["weixin-mp"] = require("./weixin-mp-data").collect; } catch {}
+try { dataCollectors.douyin = require("./douyin-data").collect; } catch {}
+try { dataCollectors.xiaohongshu = require("./xiaohongshu-data").collect; } catch {}
+try { dataCollectors.kuaishou = require("./kuaishou-data").collect; } catch {}
+try { dataCollectors.zhihu = require("./zhihu-data").collect; } catch {}
 
 /**
  * Collect analytics data from one or more platforms.

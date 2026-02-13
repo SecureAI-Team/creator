@@ -62,17 +62,20 @@ export const GET = auth(async function GET(req) {
     _count: true,
   });
 
-  // Platform connections status
+  // Platform connections status (including accountId/accountName)
   const platforms = await prisma.platformConnection.findMany({
     where: { userId },
     select: {
       platformKey: true,
+      accountId: true,
+      accountName: true,
       status: true,
       lastChecked: true,
     },
   });
 
   // Latest platform-level metrics (from data collection)
+  // distinct on both platform and accountId to support multi-account
   const metricsWhere: Record<string, unknown> = { userId };
   if (platform) {
     metricsWhere.platform = platform;
@@ -80,7 +83,7 @@ export const GET = auth(async function GET(req) {
   const latestMetrics = await prisma.platformMetrics.findMany({
     where: metricsWhere,
     orderBy: { date: "desc" },
-    distinct: ["platform"],
+    distinct: ["platform", "accountId"],
   });
 
   return NextResponse.json({

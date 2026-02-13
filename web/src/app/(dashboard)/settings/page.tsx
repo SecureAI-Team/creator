@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   User, Globe, Key, MessageCircle, Bot, Shield, Loader2, Check, Copy, Monitor,
+  Plus, Trash2, Users,
 } from "lucide-react";
 import { useSession, signIn } from "next-auth/react";
 
@@ -31,6 +32,27 @@ interface WeChatState {
   bound: boolean;
   providerAccountId?: string;
 }
+
+interface PlatformAccount {
+  id: string;
+  platformKey: string;
+  accountId: string;
+  accountName: string | null;
+  status: string;
+}
+
+const PLATFORM_LABELS: Record<string, string> = {
+  bilibili: "B站",
+  "weixin-mp": "微信公众号",
+  douyin: "抖音",
+  xiaohongshu: "小红书",
+  kuaishou: "快手",
+  zhihu: "知乎",
+  youtube: "YouTube",
+  weibo: "微博",
+  toutiao: "头条",
+  "weixin-channels": "视频号",
+};
 
 /* ------------------------------------------------------------------ */
 /*  Section wrapper                                                    */
@@ -88,6 +110,12 @@ export default function SettingsPage() {
   const [dashscopeKeyStatus, setDashscopeKeyStatus] = useState<{ dashscope: boolean; dashscopeFromEnv: boolean } | null>(null);
   const [savingKey, setSavingKey] = useState(false);
   const [keySaved, setKeySaved] = useState(false);
+  const [accounts, setAccounts] = useState<PlatformAccount[]>([]);
+  const [showAddAccount, setShowAddAccount] = useState(false);
+  const [newAcctPlatform, setNewAcctPlatform] = useState("weixin-mp");
+  const [newAcctId, setNewAcctId] = useState("");
+  const [newAcctName, setNewAcctName] = useState("");
+  const [addingAccount, setAddingAccount] = useState(false);
 
   /* Load desktop config (when in Electron) */
   useEffect(() => {
@@ -129,10 +157,11 @@ export default function SettingsPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [prefsRes, tgRes, wxRes] = await Promise.all([
+        const [prefsRes, tgRes, wxRes, acctRes] = await Promise.all([
           fetch("/api/users/settings"),
           fetch("/api/users/telegram-bind", { method: "POST" }).catch(() => null),
           fetch("/api/users/wechat-bind").catch(() => null),
+          fetch("/api/accounts").catch(() => null),
         ]);
         const prefsData = await prefsRes.json();
         const loaded = prefsData.preferences || {};
@@ -152,6 +181,11 @@ export default function SettingsPage() {
         if (wxRes?.ok) {
           const wxData = await wxRes.json();
           setWechat(wxData);
+        }
+
+        if (acctRes?.ok) {
+          const acctData = await acctRes.json();
+          setAccounts(acctData.accounts || []);
         }
       } catch { /* ignore */ }
       setLoading(false);
@@ -210,6 +244,46 @@ export default function SettingsPage() {
       setWechat({ bound: false });
     } catch { /* ignore */ }
     setWxLoading(false);
+  };
+
+  /* Platform accounts */
+  const handleAddAccount = async () => {
+    if (!newAcctId.trim()) return;
+    setAddingAccount(true);
+    try {
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platformKey: newAcctPlatform,
+          accountId: newAcctId.trim(),
+          accountName: newAcctName.trim() || newAcctId.trim(),
+        }),
+      });
+      if (res.ok) {
+        const acctRes = await fetch("/api/accounts");
+        if (acctRes.ok) {
+          const data = await acctRes.json();
+          setAccounts(data.accounts || []);
+        }
+        setNewAcctId("");
+        setNewAcctName("");
+        setShowAddAccount(false);
+      }
+    } catch { /* ignore */ }
+    setAddingAccount(false);
+  };
+
+  const handleDeleteAccount = async (platformKey: string, accountId: string) => {
+    if (!confirm(`确定要删除 ${PLATFORM_LABELS[platformKey] || platformKey} 的账号「${accountId}」吗？`)) return;
+    try {
+      await fetch("/api/accounts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platformKey, accountId }),
+      });
+      setAccounts(accounts.filter((a) => !(a.platformKey === platformKey && a.accountId === accountId)));
+    } catch { /* ignore */ }
   };
 
   /* Copy helper */
@@ -341,6 +415,106 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+      </Section>
+
+      {/* ---------- Platform Accounts ---------- */}
+      <Section icon={Users} iconBg="bg-purple-50" iconColor="text-purple-600" title="平台账号" description="管理多个平台的不同账号">
+        <div className="space-y-3">
+          {/* Existing accounts */}
+          {accounts.length === 0 && (
+            <p className="text-sm text-gray-400">暂无已添加的账号，点击下方按钮添加</p>
+          )}
+          {accounts.map((acct) => (
+            <div key={acct.id} className="flex items-center justify-between py-2 px-3 rounded-xl bg-gray-50 border border-gray-100">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-medium text-gray-500 bg-white px-2 py-0.5 rounded-lg border border-gray-100">
+                  {PLATFORM_LABELS[acct.platformKey] || acct.platformKey}
+                </span>
+                <div>
+                  <span className="text-sm font-medium text-gray-900">
+                    {acct.accountName || acct.accountId}
+                  </span>
+                  {acct.accountId !== "default" && (
+                    <span className="text-xs text-gray-400 ml-2">ID: {acct.accountId}</span>
+                  )}
+                </div>
+              </div>
+              {acct.accountId !== "default" && (
+                <button
+                  onClick={() => handleDeleteAccount(acct.platformKey, acct.accountId)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+
+          {/* Add account form */}
+          {showAddAccount ? (
+            <div className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">平台</label>
+                <select
+                  value={newAcctPlatform}
+                  onChange={(e) => setNewAcctPlatform(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
+                >
+                  {Object.entries(PLATFORM_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">账号 ID（英文标识，用于区分）</label>
+                <Input
+                  placeholder="例如: geo-radar, personal"
+                  value={newAcctId}
+                  onChange={(e) => setNewAcctId(e.target.value)}
+                  className="rounded-xl border-gray-200 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">显示名称</label>
+                <Input
+                  placeholder="例如: GEO雷达, 个人号"
+                  value={newAcctName}
+                  onChange={(e) => setNewAcctName(e.target.value)}
+                  className="rounded-xl border-gray-200 text-sm"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleAddAccount}
+                  disabled={addingAccount || !newAcctId.trim()}
+                  className="rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-sm"
+                  size="sm"
+                >
+                  {addingAccount && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+                  添加
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl border-gray-200 text-sm"
+                  onClick={() => setShowAddAccount(false)}
+                >
+                  取消
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50"
+              onClick={() => setShowAddAccount(true)}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              添加账号
+            </Button>
+          )}
+        </div>
       </Section>
 
       {/* ---------- Telegram Binding ---------- */}

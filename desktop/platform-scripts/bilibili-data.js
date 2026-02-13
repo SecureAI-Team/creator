@@ -1,16 +1,15 @@
 /**
  * Bilibili creator dashboard data collector.
  *
- * Navigates to:
- *   1. https://member.bilibili.com/platform/data/overview  (数据总览)
- *   2. https://member.bilibili.com/platform/data/article    (稿件数据)
+ * Strategy:
+ *   1. Navigate to https://member.bilibili.com/platform/home (always loads)
+ *   2. Click "数据中心" in sidebar to trigger client-side routing
+ *   3. Wait for data content to appear (poll for keywords)
+ *   4. Parse metrics from the accessibility snapshot
  *
- * Extracts: followers, total views, total likes, total comments, total shares,
- *           content count, and recent content performance list.
- *
- * Strategy: navigate → wait → snapshot → parse text from snapshot.
- * The snapshot returns an accessibility tree with visible text, so we look
- * for known Chinese labels and adjacent numeric values.
+ * The Bilibili creator center is a SPA — direct navigation to
+ * /platform/data/overview often shows only the sidebar without metrics.
+ * Going through the home page and clicking ensures proper SPA hydration.
  */
 
 /**
@@ -104,8 +103,34 @@ function findMetric(snapshotText, labels) {
 }
 
 /**
+ * Poll the page snapshot until one of the keywords appears, or timeout.
+ * @param {object} helpers
+ * @param {string[]} keywords - Keywords to look for in the flattened snapshot
+ * @param {number} maxWaitMs - Maximum wait time in ms
+ * @param {number} intervalMs - Polling interval in ms
+ * @returns {string} The snapshot text once ready, or the last snapshot
+ */
+async function waitForContent(helpers, keywords, maxWaitMs = 15000, intervalMs = 2000) {
+  const start = Date.now();
+  let lastSnapshot = "";
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      lastSnapshot = helpers.snapshot();
+      const flat = flattenSnapshot(lastSnapshot);
+      if (keywords.some((kw) => flat.includes(kw))) {
+        return lastSnapshot;
+      }
+    } catch {
+      // snapshot failed, retry
+    }
+    await helpers.sleep(intervalMs);
+  }
+  return lastSnapshot;
+}
+
+/**
  * Collect data from bilibili creator dashboard.
- * @param {object} helpers - { navigate, snapshot, screenshot, sleep, ... }
+ * @param {object} helpers - { navigate, open, snapshot, click, screenshot, sleep, ... }
  * @returns {Promise<{ followers, totalViews, totalLikes, totalComments, totalShares, contentCount, rawData }>}
  */
 async function collect(helpers) {
@@ -119,57 +144,87 @@ async function collect(helpers) {
     rawData: {},
   };
 
-  // ---- Step 1: Navigate to bilibili data overview ----
+  // ---- Step 1: Navigate to bilibili creator home (SPA entry point) ----
   try {
-    helpers.navigate("https://member.bilibili.com/platform/data/overview");
+    helpers.navigate("https://member.bilibili.com/platform/home");
   } catch {
-    // If navigate fails, try open (which also launches the browser)
-    helpers.open("https://member.bilibili.com/platform/data/overview");
+    helpers.open("https://member.bilibili.com/platform/home");
   }
   await helpers.sleep(5000);
 
-  // ---- Step 2: Get the page snapshot ----
-  let overviewText = "";
-  try {
-    overviewText = helpers.snapshot();
-  } catch (err) {
-    // If snapshot fails, take a screenshot for debugging and try again
-    try { helpers.screenshot(); } catch {}
-    await helpers.sleep(3000);
-    try { overviewText = helpers.snapshot(); } catch {}
+  // ---- Step 2: Click "数据中心" in sidebar to trigger SPA route ----
+  let dataPageLoaded = false;
+  const clickSelectors = [
+    'text="数据中心"',
+    'text=数据中心',
+    'generic:has-text("数据中心")',
+  ];
+  for (const sel of clickSelectors) {
+    try {
+      helpers.click(sel);
+      dataPageLoaded = true;
+      break;
+    } catch {
+      // Try next selector
+    }
   }
 
-  if (overviewText) {
-    result.rawData.overviewSnapshot = overviewText.substring(0, 5000);
-
-    // Parse overview metrics from accessibility tree
-    // Bilibili data overview page shows metrics as label + value pairs
-    result.followers = findMetric(overviewText, ["粉丝数", "粉丝总数", "粉丝", "关注数"]);
-    result.totalViews = findMetric(overviewText, ["播放量", "总播放量", "总播放", "播放数", "阅读量"]);
-    result.totalLikes = findMetric(overviewText, ["点赞数", "点赞", "获赞"]);
-    result.totalComments = findMetric(overviewText, ["评论数", "评论", "弹幕数"]);
-    result.totalShares = findMetric(overviewText, ["分享数", "分享", "转发数"]);
-    result.contentCount = findMetric(overviewText, ["投稿数", "稿件数", "视频数", "投稿"]);
+  // ---- Step 3: Wait for data content to appear ----
+  let dataText = "";
+  if (dataPageLoaded) {
+    // Poll until we see data-related keywords
+    dataText = await waitForContent(
+      helpers,
+      ["粉丝数", "播放量", "总播放", "点赞数", "互动数", "涨粉"],
+      15000,
+      2000
+    );
   }
 
-  // ---- Step 3: Try to get more data from the up-stat page ----
+  // Fallback: try direct URL navigation if click didn't work
+  if (!dataText || !flattenSnapshot(dataText).match(/粉丝|播放|点赞/)) {
+    try {
+      helpers.navigate("https://member.bilibili.com/platform/data/overview");
+      dataText = await waitForContent(
+        helpers,
+        ["粉丝数", "播放量", "总播放", "点赞数", "互动数", "涨粉"],
+        12000,
+        2000
+      );
+    } catch {
+      // Already have whatever snapshot we had
+    }
+  }
+
+  if (dataText) {
+    result.rawData.overviewSnapshot = dataText.substring(0, 5000);
+
+    // Parse metrics from the data overview page
+    result.followers = findMetric(dataText, ["粉丝数", "粉丝总数", "粉丝", "关注数", "涨粉"]);
+    result.totalViews = findMetric(dataText, ["播放量", "总播放量", "总播放", "播放数", "阅读量"]);
+    result.totalLikes = findMetric(dataText, ["点赞数", "点赞", "获赞"]);
+    result.totalComments = findMetric(dataText, ["评论数", "评论", "弹幕数"]);
+    result.totalShares = findMetric(dataText, ["分享数", "分享", "转发数"]);
+    result.contentCount = findMetric(dataText, ["投稿数", "稿件数", "视频数", "投稿"]);
+  }
+
+  // ---- Step 4: Also grab home page data as supplement ----
   try {
     helpers.navigate("https://member.bilibili.com/platform/home");
     await helpers.sleep(3000);
     const homeText = helpers.snapshot();
     if (homeText) {
       result.rawData.homeSnapshot = homeText.substring(0, 3000);
-
       // Home page might show follower count and recent stats
       if (result.followers === 0) {
         result.followers = findMetric(homeText, ["粉丝", "关注者"]);
       }
     }
   } catch {
-    // Non-critical, ignore
+    // Non-critical
   }
 
-  // ---- Step 4: Take a screenshot for debugging/audit ----
+  // ---- Step 5: Screenshot for debugging ----
   try {
     helpers.screenshot();
   } catch {}
