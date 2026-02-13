@@ -26,12 +26,27 @@ export async function POST(
 
     const userId = session.user.id;
     const { id: contentId } = await params;
-    const { platforms } = await request.json();
+    const { platforms, confirmed } = await request.json();
 
     if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
       return NextResponse.json(
         { error: "请选择至少一个平台" },
         { status: 400 }
+      );
+    }
+
+    // Check user's publish mode — if manual review is required, the request
+    // must include confirmed: true (which the frontend sends after the modal)
+    const prefs = await prisma.userPreferences.findUnique({
+      where: { userId },
+      select: { confirmBeforePublish: true },
+    });
+    const needsConfirmation = prefs?.confirmBeforePublish ?? true;
+
+    if (needsConfirmation && !confirmed) {
+      return NextResponse.json(
+        { error: "NEEDS_CONFIRMATION", message: "当前为手动审核模式，请确认后再发布" },
+        { status: 428 }
       );
     }
 

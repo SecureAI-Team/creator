@@ -135,12 +135,13 @@ export default function SettingsPage() {
           fetch("/api/users/wechat-bind").catch(() => null),
         ]);
         const prefsData = await prefsRes.json();
-        setPrefs(prefsData.preferences || {
-          language: "zh-CN",
-          timezone: "Asia/Shanghai",
-          defaultPlatforms: [],
-          publishMode: "manual",
-          notifyVia: ["telegram"],
+        const loaded = prefsData.preferences || {};
+        setPrefs({
+          language: loaded.language || "zh-CN",
+          timezone: loaded.timezone || "Asia/Shanghai",
+          defaultPlatforms: loaded.defaultPlatforms || [],
+          publishMode: loaded.publishMode || "manual",
+          notifyVia: loaded.notifyVia || ["telegram"],
         });
 
         if (tgRes?.ok) {

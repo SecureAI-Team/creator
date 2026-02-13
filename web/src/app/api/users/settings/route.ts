@@ -11,6 +11,7 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
     const userId = session.user.id;
+    const prefs = body.preferences || body;
 
     // Update user profile
     if (body.name) {
@@ -20,19 +21,30 @@ export async function PUT(request: NextRequest) {
       });
     }
 
+    // Map publishMode to confirmBeforePublish
+    // "manual" → true (confirm before publish), "auto" → false
+    const confirmBeforePublish =
+      prefs.publishMode !== undefined
+        ? prefs.publishMode === "manual"
+        : undefined;
+
     // Update preferences
     await prisma.userPreferences.upsert({
       where: { userId },
       update: {
-        timezone: body.timezone,
-        notificationLevel: body.notificationLevel,
-        dashscopeApiKey: body.dashscopeKey || undefined,
+        timezone: prefs.timezone,
+        language: prefs.language,
+        notificationLevel: prefs.notificationLevel,
+        ...(confirmBeforePublish !== undefined && { confirmBeforePublish }),
+        dashscopeApiKey: prefs.dashscopeKey || undefined,
       },
       create: {
         userId,
-        timezone: body.timezone || "Asia/Shanghai",
-        notificationLevel: body.notificationLevel || "important",
-        dashscopeApiKey: body.dashscopeKey || undefined,
+        timezone: prefs.timezone || "Asia/Shanghai",
+        language: prefs.language || "zh-CN",
+        notificationLevel: prefs.notificationLevel || "important",
+        confirmBeforePublish: confirmBeforePublish ?? true,
+        dashscopeApiKey: prefs.dashscopeKey || undefined,
       },
     });
 
@@ -60,8 +72,13 @@ export async function GET() {
     return NextResponse.json({
       name: user?.name,
       email: user?.email,
-      timezone: user?.preferences?.timezone || "Asia/Shanghai",
-      notificationLevel: user?.preferences?.notificationLevel || "important",
+      preferences: {
+        language: user?.preferences?.language || "zh-CN",
+        timezone: user?.preferences?.timezone || "Asia/Shanghai",
+        notificationLevel: user?.preferences?.notificationLevel || "important",
+        // Map confirmBeforePublish back to publishMode for the frontend
+        publishMode: user?.preferences?.confirmBeforePublish === false ? "auto" : "manual",
+      },
     });
   } catch {
     return NextResponse.json(

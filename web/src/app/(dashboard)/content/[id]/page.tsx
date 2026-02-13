@@ -107,6 +107,8 @@ export default function ContentDetailPage() {
   // Publish state
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
+  const [publishMode, setPublishMode] = useState<"manual" | "auto">("manual");
+  const [showConfirm, setShowConfirm] = useState(false);
 
   // Adapt state
   const [adapting, setAdapting] = useState<string | null>(null);
@@ -130,7 +132,7 @@ export default function ContentDetailPage() {
     setLoading(false);
   }, [contentId]);
 
-  // Fetch connected platforms
+  // Fetch connected platforms and user publish mode
   useEffect(() => {
     async function loadPlatforms() {
       try {
@@ -144,7 +146,20 @@ export default function ContentDetailPage() {
         // ignore
       }
     }
+    async function loadPublishMode() {
+      try {
+        const res = await fetch("/api/users/settings");
+        const data = await res.json();
+        const mode = data.preferences?.publishMode;
+        if (mode === "auto" || mode === "manual") {
+          setPublishMode(mode);
+        }
+      } catch {
+        // ignore
+      }
+    }
     loadPlatforms();
+    loadPublishMode();
   }, []);
 
   useEffect(() => {
@@ -185,14 +200,25 @@ export default function ContentDetailPage() {
     );
   };
 
-  const handlePublish = async () => {
+  // Trigger publish: if manual mode, show confirmation first; if auto, publish directly
+  const handlePublishClick = () => {
     if (!item || selectedPlatforms.length === 0) return;
+    if (publishMode === "manual") {
+      setShowConfirm(true);
+    } else {
+      doPublish();
+    }
+  };
+
+  const doPublish = async () => {
+    if (!item || selectedPlatforms.length === 0) return;
+    setShowConfirm(false);
     setPublishing(true);
     try {
       const res = await fetch(`/api/content/${item.id}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platforms: selectedPlatforms }),
+        body: JSON.stringify({ platforms: selectedPlatforms, confirmed: true }),
       });
       if (res.ok) {
         // Refresh to get updated publish records
@@ -364,7 +390,7 @@ export default function ContentDetailPage() {
               <Button
                 size="sm"
                 className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
-                onClick={handlePublish}
+                onClick={handlePublishClick}
                 disabled={publishing || selectedPlatforms.length === 0}
               >
                 {publishing ? (
@@ -372,7 +398,7 @@ export default function ContentDetailPage() {
                 ) : (
                   <Send className="h-4 w-4 mr-1.5" />
                 )}
-                发布到选中平台
+                {publishMode === "manual" ? "审核并发布" : "发布到选中平台"}
               </Button>
             </div>
           </>
@@ -468,6 +494,80 @@ export default function ContentDetailPage() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Publish confirmation modal (manual review mode) */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 w-full max-w-md mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900">确认发布</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                当前为手动审核模式，请确认以下信息无误后再发布
+              </p>
+            </div>
+            <div className="px-6 py-4 space-y-3">
+              <div>
+                <span className="text-xs font-medium text-gray-400">标题</span>
+                <p className="text-sm text-gray-900 mt-0.5 line-clamp-2">{title}</p>
+              </div>
+              {body && (
+                <div>
+                  <span className="text-xs font-medium text-gray-400">正文预览</span>
+                  <p className="text-sm text-gray-600 mt-0.5 line-clamp-3">{body}</p>
+                </div>
+              )}
+              <div>
+                <span className="text-xs font-medium text-gray-400">发布平台</span>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {selectedPlatforms.map((key) => {
+                    const p = PLATFORMS.find((pl) => pl.key === key);
+                    return (
+                      <span
+                        key={key}
+                        className="inline-flex items-center gap-1 text-xs font-medium bg-gray-100 text-gray-700 px-2 py-1 rounded-lg"
+                      >
+                        <span className={`h-4 w-4 rounded bg-gradient-to-br ${p?.color || "from-gray-400 to-gray-500"} flex items-center justify-center text-white text-[9px] font-bold`}>
+                          {p?.initial || "?"}
+                        </span>
+                        {p?.name || key}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+              {tags && (
+                <div>
+                  <span className="text-xs font-medium text-gray-400">标签</span>
+                  <p className="text-sm text-gray-600 mt-0.5">{tags}</p>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl border-gray-200"
+                onClick={() => setShowConfirm(false)}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                onClick={doPublish}
+                disabled={publishing}
+              >
+                {publishing ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                ) : (
+                  <Send className="h-4 w-4 mr-1.5" />
+                )}
+                确认发布
+              </Button>
+            </div>
           </div>
         </div>
       )}
