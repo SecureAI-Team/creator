@@ -203,18 +203,13 @@ function findSystemNode() {
 }
 
 /**
- * Ensure OpenClaw config exists with DashScope/Qwen provider (OpenAI-compatible).
- * Creates {workspaceDir}/.openclaw/openclaw.json if missing or outdated.
+ * Ensure OpenClaw config exists with DashScope/Qwen provider (OpenAI-compatible)
+ * and browser automation enabled.
+ * Creates/updates {workspaceDir}/.openclaw/openclaw.json and workspace AGENTS.md.
  */
 function ensureOpenClawConfig(workspaceDir) {
   const configDir = path.join(workspaceDir, ".openclaw");
   const configPath = path.join(configDir, "openclaw.json");
-
-  // Only create if missing — don't overwrite user customizations
-  if (fs.existsSync(configPath)) {
-    log.info("OpenClaw config already exists:", configPath);
-    return;
-  }
 
   fs.mkdirSync(configDir, { recursive: true });
 
@@ -223,6 +218,11 @@ function ensureOpenClawConfig(workspaceDir) {
       defaults: {
         model: { primary: "dashscope/qwen-max-latest" },
       },
+    },
+    browser: {
+      enabled: true,
+      defaultProfile: "openclaw",
+      headless: false,
     },
     models: {
       mode: "merge",
@@ -241,8 +241,68 @@ function ensureOpenClawConfig(workspaceDir) {
     },
   };
 
+  // Always write config to ensure latest settings (browser config, etc.)
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-  log.info("Created OpenClaw config with DashScope provider:", configPath);
+  log.info("Written OpenClaw config:", configPath);
+
+  // Create workspace AGENTS.md with platform login instructions
+  ensureAgentsFile(workspaceDir);
+}
+
+/**
+ * Create AGENTS.md in the workspace to instruct the AI agent
+ * how to handle platform login and status commands.
+ */
+function ensureAgentsFile(workspaceDir) {
+  const agentsPath = path.join(workspaceDir, "AGENTS.md");
+
+  // Always update to latest version
+  const content = `# Creator Desktop Agent
+
+## 核心指令
+
+你是一个自媒体平台自动化助手。你的主要任务是帮助用户登录各个自媒体平台。
+
+## 处理 /login 命令
+
+当你收到 \`/login <平台名>\` 消息时，你**必须**立即使用浏览器工具执行以下操作：
+
+1. 使用 browser 工具打开对应平台的登录页面
+2. 告知用户在弹出的浏览器窗口中完成登录
+
+**平台 URL 映射（必须严格遵守）：**
+
+| 平台名 | 登录 URL |
+|--------|----------|
+| bilibili | https://passport.bilibili.com/login |
+| douyin | https://creator.douyin.com |
+| xiaohongshu | https://creator.xiaohongshu.com |
+| youtube | https://studio.youtube.com |
+| weixin-mp | https://mp.weixin.qq.com |
+| weixin-channels | https://channels.weixin.qq.com |
+| kuaishou | https://cp.kuaishou.com |
+| zhihu | https://www.zhihu.com/signin |
+| weibo | https://weibo.com/login |
+| toutiao | https://mp.toutiao.com |
+
+**关键：** 收到 /login 命令后，不要只回复文字说明。你**必须**调用浏览器工具打开 URL。
+
+## 处理 /status 命令
+
+当你收到 \`/status <平台名>\` 消息时：
+1. 检查浏览器中是否有该平台的已打开页面
+2. 如果有，报告当前页面状态
+3. 如果没有，报告该平台未登录
+
+## 浏览器使用规则
+
+- 始终使用 openclaw 浏览器配置文件（不是用户的个人浏览器）
+- 打开页面后等待用户完成登录操作
+- 不要尝试自动输入用户名密码（这会触发反机器人防御）
+`;
+
+  fs.writeFileSync(agentsPath, content, "utf-8");
+  log.info("Written workspace AGENTS.md:", agentsPath);
 }
 
 /**
