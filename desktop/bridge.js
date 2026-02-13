@@ -1,6 +1,6 @@
 /**
  * Bridge client - WebSocket connection to server for local OpenClaw relay.
- * Forwards agent messages from server to local OpenClaw (localhost:3000).
+ * Forwards agent messages from server to local OpenClaw gateway (WebSocket RPC).
  *
  * IMPORTANT: The "received" ACK is only sent AFTER confirming OpenClaw is
  * reachable. If OpenClaw is down, NO ACK is sent, causing the server to
@@ -9,10 +9,218 @@
 
 const WebSocket = require("ws");
 const net = require("net");
+const crypto = require("crypto");
+
+// ---- Minimal OpenClaw Gateway RPC client ----
+
+/**
+ * Creates a lightweight WebSocket RPC client for the local OpenClaw gateway.
+ * Handles the connect handshake and provides a request() method.
+ */
+function createGatewayRPC(getPort, getToken, logger) {
+  let ws = null;
+  let connected = false;
+  let pending = new Map();
+  let currentPort = null;
+  let currentToken = null;
+
+  /**
+   * Ensure the WebSocket is connected and handshake is complete.
+   * Reconnects if port/token changed or connection is lost.
+   */
+  function ensureConnected(timeoutMs = 10000) {
+    const port = getPort();
+    const token = getToken();
+
+    // Reuse existing connection if still valid
+    if (connected && ws && ws.readyState === WebSocket.OPEN &&
+        currentPort === port && currentToken === token) {
+      return Promise.resolve(true);
+    }
+
+    // Disconnect existing
+    if (ws) {
+      try { ws.close(); } catch {}
+      ws = null;
+      connected = false;
+    }
+
+    return new Promise((resolve) => {
+      currentPort = port;
+      currentToken = token;
+
+      const deadline = setTimeout(() => {
+        logger.warn(`Gateway RPC connect timeout (${timeoutMs}ms)`);
+        resolve(false);
+      }, timeoutMs);
+
+      try {
+        ws = new WebSocket(`ws://127.0.0.1:${port}`);
+      } catch (err) {
+        clearTimeout(deadline);
+        logger.error("Gateway RPC WebSocket creation failed:", err.message);
+        resolve(false);
+        return;
+      }
+
+      // After WS opens, wait for optional connect.challenge, then send connect
+      let connectSent = false;
+      let challengeTimer = null;
+
+      function sendConnectFrame() {
+        if (connectSent || !ws || ws.readyState !== WebSocket.OPEN) return;
+        connectSent = true;
+        if (challengeTimer) { clearTimeout(challengeTimer); challengeTimer = null; }
+
+        const id = crypto.randomUUID();
+        const frame = {
+          type: "req",
+          id,
+          method: "connect",
+          params: {
+            minProtocol: 3,
+            maxProtocol: 3,
+            client: {
+              id: "gateway-client",
+              displayName: "creator-desktop-bridge",
+              version: "1.0.0",
+              platform: process.platform,
+              mode: "backend",
+            },
+            caps: [],
+            auth: token ? { token } : undefined,
+            role: "operator",
+            scopes: ["operator.admin"],
+          },
+        };
+
+        pending.set(id, {
+          resolve: () => {
+            connected = true;
+            clearTimeout(deadline);
+            logger.info("Gateway RPC connected (port " + port + ")");
+            resolve(true);
+          },
+          reject: (err) => {
+            clearTimeout(deadline);
+            logger.error("Gateway RPC connect rejected:", err.message);
+            resolve(false);
+          },
+          timer: null, // Deadline timer handles overall timeout
+          expectFinal: false,
+        });
+
+        ws.send(JSON.stringify(frame));
+      }
+
+      ws.on("open", () => {
+        logger.debug("Gateway RPC WS opened, waiting for challenge...");
+        // Wait up to 800ms for a connect.challenge event, then send connect anyway
+        challengeTimer = setTimeout(sendConnectFrame, 800);
+      });
+
+      ws.on("message", (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+
+          // Handle connect.challenge event
+          if (msg.event === "connect.challenge") {
+            logger.debug("Gateway RPC received connect.challenge");
+            sendConnectFrame();
+            return;
+          }
+
+          // Ignore other events (tick, chat.message, etc.)
+          if (msg.event) return;
+
+          // Handle RPC responses
+          if (msg.id && pending.has(msg.id)) {
+            const p = pending.get(msg.id);
+            const status = msg.payload?.status;
+            // If expectFinal, skip "accepted"/"started" and wait for final
+            if (p.expectFinal && (status === "accepted" || status === "started")) return;
+            pending.delete(msg.id);
+            if (p.timer) clearTimeout(p.timer);
+            if (msg.ok) p.resolve(msg.payload);
+            else p.reject(new Error(msg.error?.message || "unknown gateway error"));
+          }
+        } catch (err) {
+          logger.warn("Gateway RPC parse error:", err.message);
+        }
+      });
+
+      ws.on("error", (err) => {
+        logger.error("Gateway RPC WS error:", err.message);
+      });
+
+      ws.on("close", (code) => {
+        const wasConnected = connected;
+        connected = false;
+        ws = null;
+        if (wasConnected) {
+          logger.warn(`Gateway RPC WS closed (code=${code})`);
+        }
+        // Reject all pending requests
+        for (const [id, p] of pending) {
+          if (p.timer) clearTimeout(p.timer);
+          p.reject(new Error("gateway connection closed"));
+        }
+        pending.clear();
+        // Also resolve the connect promise if still pending
+        clearTimeout(deadline);
+        if (!connectSent) resolve(false);
+      });
+    });
+  }
+
+  /**
+   * Send an RPC request to the gateway.
+   * @param {string} method - RPC method (e.g. "chat.send")
+   * @param {object} params - Method parameters
+   * @param {object} opts - Options: { timeoutMs, expectFinal }
+   */
+  async function request(method, params, { timeoutMs = 60000, expectFinal = false } = {}) {
+    const ok = await ensureConnected();
+    if (!ok) throw new Error("gateway not reachable");
+    if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error("gateway not connected");
+
+    return new Promise((resolve, reject) => {
+      const id = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`${method} timeout (${timeoutMs}ms)`));
+      }, timeoutMs);
+
+      pending.set(id, { resolve, reject, timer, expectFinal });
+      ws.send(JSON.stringify({ type: "req", id, method, params }));
+    });
+  }
+
+  function disconnect() {
+    if (ws) {
+      try { ws.close(); } catch {}
+      ws = null;
+    }
+    connected = false;
+    for (const [, p] of pending) {
+      if (p.timer) clearTimeout(p.timer);
+    }
+    pending.clear();
+  }
+
+  function isConnected() {
+    return connected && ws && ws.readyState === WebSocket.OPEN;
+  }
+
+  return { ensureConnected, request, disconnect, isConnected };
+}
+
+
+// ---- Bridge client ----
 
 /**
  * @param {string} serverUrl - Base URL (e.g. https://example.com)
- * @param {{ localOpenClawPort?: number|Function, onTaskEvent?: (evt: any) => void, logger?: any }} options
+ * @param {{ localOpenClawPort?: number|Function, localGatewayToken?: string|Function, onTaskEvent?: (evt: any) => void, logger?: any }} options
  */
 function createBridge(serverUrl, options = {}) {
   const base = serverUrl.replace(/\/+$/, "");
@@ -44,28 +252,8 @@ function createBridge(serverUrl, options = {}) {
   let lastToken = null;
   const RECONNECT_DELAY = 5000;
 
-  /**
-   * Quick TCP probe to check if OpenClaw port is open.
-   * Resolves true/false within timeoutMs.
-   */
-  function probePort(port, timeoutMs = 1500) {
-    return new Promise((resolve) => {
-      const sock = net.createConnection({ port, host: "127.0.0.1" });
-      const timer = setTimeout(() => {
-        sock.destroy();
-        resolve(false);
-      }, timeoutMs);
-      sock.on("connect", () => {
-        clearTimeout(timer);
-        sock.destroy();
-        resolve(true);
-      });
-      sock.on("error", () => {
-        clearTimeout(timer);
-        resolve(false);
-      });
-    });
-  }
+  // Create the local gateway RPC client
+  const gatewayRPC = createGatewayRPC(getPort, getGatewayToken, bLog);
 
   async function connect(token) {
     if (!token) return false;
@@ -111,30 +299,29 @@ function createBridge(serverUrl, options = {}) {
     const { message, requestId } = msg;
     bLog.info(`[${requestId}] Agent message: ${message}`);
 
-    const port = getPort();
-
-    // ---- Pre-check: is OpenClaw reachable? ----
-    // Retry up to 5 times (total ~12s) to handle case where OpenClaw is still starting.
-    // If not reachable after retries, DON'T send ACK → server times out → falls back to VNC.
-    let portOpen = false;
-    const MAX_PROBE_RETRIES = 5;
-    const PROBE_INTERVAL_MS = 2000;
-    for (let attempt = 1; attempt <= MAX_PROBE_RETRIES; attempt++) {
-      portOpen = await probePort(port, 1500);
-      if (portOpen) {
-        if (attempt > 1) bLog.info(`[${requestId}] OpenClaw became reachable after ${attempt} probe(s)`);
+    // ---- Pre-check: can we connect to the local OpenClaw gateway? ----
+    // Try to establish/reuse the WebSocket RPC connection.
+    // Retry up to 3 times with 3s intervals to handle case where OpenClaw is still starting.
+    let rpcReady = false;
+    const MAX_CONNECT_RETRIES = 3;
+    const CONNECT_RETRY_INTERVAL_MS = 3000;
+    for (let attempt = 1; attempt <= MAX_CONNECT_RETRIES; attempt++) {
+      rpcReady = await gatewayRPC.ensureConnected(8000);
+      if (rpcReady) {
+        if (attempt > 1) bLog.info(`[${requestId}] Gateway RPC connected after ${attempt} attempt(s)`);
         break;
       }
-      if (attempt < MAX_PROBE_RETRIES) {
-        bLog.debug(`[${requestId}] OpenClaw probe ${attempt}/${MAX_PROBE_RETRIES} failed, retrying in ${PROBE_INTERVAL_MS}ms...`);
-        await new Promise((r) => setTimeout(r, PROBE_INTERVAL_MS));
+      if (attempt < MAX_CONNECT_RETRIES) {
+        bLog.debug(`[${requestId}] Gateway RPC connect attempt ${attempt}/${MAX_CONNECT_RETRIES} failed, retrying in ${CONNECT_RETRY_INTERVAL_MS}ms...`);
+        await new Promise((r) => setTimeout(r, CONNECT_RETRY_INTERVAL_MS));
       }
     }
-    if (!portOpen) {
-      bLog.warn(`[${requestId}] OpenClaw not reachable at :${port} after ${MAX_PROBE_RETRIES} retries, NOT sending ACK (will trigger VNC fallback)`);
+
+    if (!rpcReady) {
+      const port = getPort();
+      bLog.warn(`[${requestId}] OpenClaw gateway not reachable at :${port} after ${MAX_CONNECT_RETRIES} retries, NOT sending ACK (will trigger VNC fallback)`);
       emit({ type: "ack", requestId, stage: "local_unavailable", message });
-      // Send error response so bridge-server can clean up the pending request
-      sendResponse(requestId, `错误: 本地引擎未运行 (port ${port} unreachable)`);
+      sendResponse(requestId, `错误: 本地引擎未运行 (gateway RPC unreachable)`);
       return;
     }
 
@@ -145,26 +332,20 @@ function createBridge(serverUrl, options = {}) {
     try {
       const isLogin = typeof message === "string" && message.startsWith("/login ");
       if (isLogin) {
-        bLog.info(`[${requestId}] Login command detected, forwarding to OpenClaw at :${port}`);
+        bLog.info(`[${requestId}] Login command detected, forwarding to OpenClaw gateway`);
       }
 
-      // Build headers with optional gateway token authentication
-      const headers = { "Content-Type": "application/json" };
-      const token = getGatewayToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
+      // Send chat message via WebSocket RPC
+      bLog.debug(`[${requestId}] chat.send via gateway RPC`);
+      const result = await gatewayRPC.request("chat.send", {
+        sessionKey: "main",
+        message: message,
+        idempotencyKey: requestId,
+      }, { timeoutMs: 120_000, expectFinal: false });
 
-      bLog.debug(`[${requestId}] POST http://127.0.0.1:${port}/api/chat`);
-      const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ message }),
-        signal: AbortSignal.timeout(60_000),
-      });
-      const data = await res.json();
-      const reply = data.reply || data.message || "";
-      bLog.info(`[${requestId}] OpenClaw reply (${res.status}): ${reply.slice(0, 200)}`);
+      const status = result?.status || "unknown";
+      const runId = result?.runId || requestId;
+      bLog.info(`[${requestId}] Gateway RPC chat.send result: status=${status}, runId=${runId}`);
 
       if (isLogin) {
         sendAck(requestId, "browser_opened");
@@ -177,6 +358,8 @@ function createBridge(serverUrl, options = {}) {
         sendAck(requestId, "local_response");
         emit({ type: "ack", requestId, stage: "local_response", message });
       }
+
+      const reply = `OpenClaw: ${status} (runId: ${runId})`;
       emit({ type: "response", requestId, ok: true, message, reply });
       sendResponse(requestId, reply);
     } catch (err) {
@@ -205,6 +388,7 @@ function createBridge(serverUrl, options = {}) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+    gatewayRPC.disconnect();
     if (ws) {
       ws.close();
       ws = null;
