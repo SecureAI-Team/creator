@@ -109,7 +109,7 @@ function error(...args) {
           return;
         }
 
-        const { userId, message, returnOnAck, ackTimeoutMs } = data;
+        const { userId, message, returnOnAck, ackTimeoutMs, timeoutMs: reqTimeoutMs } = data;
         if (!userId || typeof message !== "string") {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "missing userId or message" }));
@@ -125,7 +125,9 @@ function error(...args) {
         }
 
         const requestId = crypto.randomUUID();
-        log(`send: userId=${userId}, requestId=${requestId}, message=${message.slice(0, 80)}`);
+        // Allow callers to specify a longer timeout (e.g. data refresh needs 300s)
+        const overallTimeout = Number.isFinite(reqTimeoutMs) ? Math.max(10000, Math.min(600000, Number(reqTimeoutMs))) : 65_000;
+        log(`send: userId=${userId}, requestId=${requestId}, timeout=${overallTimeout}ms, message=${message.slice(0, 80)}`);
         let responded = false;
         const waitAckOnly = !!returnOnAck;
         const ackTimeout = Number.isFinite(ackTimeoutMs) ? Math.max(1000, Math.min(20000, Number(ackTimeoutMs))) : 5000;
@@ -142,10 +144,10 @@ function error(...args) {
 
         const timeout = setTimeout(() => {
           if (pending.has(requestId)) {
-            warn(`requestId=${requestId} timed out (65s)`);
+            warn(`requestId=${requestId} timed out (${overallTimeout}ms)`);
             finish(504, { error: "timeout" });
           }
-        }, 65_000);
+        }, overallTimeout);
 
         const entry = {
           ack: (stage = "received") => {

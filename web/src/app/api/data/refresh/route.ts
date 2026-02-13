@@ -28,7 +28,9 @@ export const POST = auth(async function POST(req) {
       ? `/data refresh ${platform}`
       : `/data refresh all`;
 
-    const reply = await sendMessage(userId, command);
+    // Data collection involves browser automation on multiple platforms,
+    // which can take 2-3 minutes. Use a 5-minute timeout.
+    const reply = await sendMessage(userId, command, 300_000);
 
     // Try to parse the reply as structured data from the desktop collector
     let collectedData: Record<string, PlatformData> | null = null;

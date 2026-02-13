@@ -28,16 +28,17 @@ export async function sendViaBridge(
 ): Promise<BridgeSendResult> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    // Add buffer for HTTP overhead on top of the bridge-server timeout
+    const fetchTimeout = setTimeout(() => controller.abort(), timeoutMs + 5_000);
 
     const res = await fetch(`${BRIDGE_INTERNAL_URL}/internal/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, message }),
+      body: JSON.stringify({ userId, message, timeoutMs }),
       signal: controller.signal,
     });
 
-    clearTimeout(timeout);
+    clearTimeout(fetchTimeout);
 
     if (res.status === 404) {
       return { ok: false, error: "no_bridge" };

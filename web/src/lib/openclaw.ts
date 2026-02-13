@@ -30,9 +30,10 @@ interface InstanceStatus {
  */
 export async function sendMessage(
   userId: string,
-  message: string
+  message: string,
+  timeoutMs = 60_000
 ): Promise<string> {
-  const bridgeResult = await sendViaBridge(userId, message);
+  const bridgeResult = await sendViaBridge(userId, message, timeoutMs);
   if (bridgeResult.ok) {
     return bridgeResult.reply ?? "";
   }
@@ -44,7 +45,7 @@ export async function sendMessage(
       "X-User-Id": userId,
     },
     body: JSON.stringify({ message }),
-    signal: AbortSignal.timeout(60_000), // 60s timeout for browser operations
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {
