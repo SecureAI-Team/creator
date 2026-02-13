@@ -203,6 +203,49 @@ function findSystemNode() {
 }
 
 /**
+ * Ensure OpenClaw config exists with DashScope/Qwen provider (OpenAI-compatible).
+ * Creates {workspaceDir}/.openclaw/openclaw.json if missing or outdated.
+ */
+function ensureOpenClawConfig(workspaceDir) {
+  const configDir = path.join(workspaceDir, ".openclaw");
+  const configPath = path.join(configDir, "openclaw.json");
+
+  // Only create if missing — don't overwrite user customizations
+  if (fs.existsSync(configPath)) {
+    log.info("OpenClaw config already exists:", configPath);
+    return;
+  }
+
+  fs.mkdirSync(configDir, { recursive: true });
+
+  const config = {
+    agents: {
+      defaults: {
+        model: { primary: "dashscope/qwen-max-latest" },
+      },
+    },
+    models: {
+      mode: "merge",
+      providers: {
+        dashscope: {
+          baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          apiKey: "${DASHSCOPE_API_KEY}",
+          api: "openai-completions",
+          models: [
+            { id: "qwen-max-latest", name: "Qwen Max" },
+            { id: "qwen-plus-latest", name: "Qwen Plus" },
+            { id: "qwen-turbo-latest", name: "Qwen Turbo" },
+          ],
+        },
+      },
+    },
+  };
+
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+  log.info("Created OpenClaw config with DashScope provider:", configPath);
+}
+
+/**
  * Ensure openclaw is installed in the workspace directory.
  * Uses the system Node.js + npm to install it with all transitive dependencies.
  * Returns true if openclaw is ready, false otherwise.
@@ -218,6 +261,7 @@ async function ensureOpenClawInstalled(systemNode) {
       const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
       if (pkg.version === OPENCLAW_VERSION) {
         log.info(`OpenClaw ${OPENCLAW_VERSION} already installed in workspace`);
+        ensureOpenClawConfig(workspaceDir);
         return true;
       }
       log.info(`OpenClaw version mismatch: installed=${pkg.version}, need=${OPENCLAW_VERSION}`);
@@ -258,6 +302,10 @@ async function ensureOpenClawInstalled(systemNode) {
       windowsHide: true,
     });
     log.info("npm install output:", result.trim().slice(0, 500));
+
+    // Ensure OpenClaw config exists (DashScope/Qwen via OpenAI-compatible API)
+    ensureOpenClawConfig(workspaceDir);
+
     return fs.existsSync(openclawPath);
   } catch (err) {
     log.error("Failed to install openclaw:", err?.stderr?.slice(0, 500) || err?.message || err);
@@ -500,6 +548,17 @@ async function startLocalOpenClawInternal() {
   };
   delete runtimeEnv.ELECTRON_RUN_AS_NODE;
 
+  // Inject DASHSCOPE_API_KEY from electron-store (user setting) or environment
+  const storedApiKey = store.get("dashscopeApiKey");
+  if (storedApiKey) {
+    runtimeEnv.DASHSCOPE_API_KEY = storedApiKey;
+    log.info("Using DASHSCOPE_API_KEY from app settings");
+  } else if (runtimeEnv.DASHSCOPE_API_KEY) {
+    log.info("Using DASHSCOPE_API_KEY from system environment");
+  } else {
+    log.warn("DASHSCOPE_API_KEY not set! OpenClaw agent calls will fail. Set it via settings or environment variable.");
+  }
+
   log.info(`Starting OpenClaw: node=${systemNode}, script=${openclawPath}, port=${localOpenClawPort}`);
 
   try {
@@ -671,6 +730,23 @@ ipcMain.handle("restart-openclaw", async () => {
     openclawProcess = null;
   }
   return startLocalOpenClawInternal();
+});
+
+// ---- API Key management IPC ----
+ipcMain.handle("set-api-key", async (_event, { provider, key }) => {
+  if (provider === "dashscope") {
+    store.set("dashscopeApiKey", key || "");
+    log.info(`DashScope API key ${key ? "saved" : "cleared"} in settings`);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle("get-api-key-status", async () => {
+  return {
+    dashscope: !!store.get("dashscopeApiKey"),
+    dashscopeFromEnv: !!process.env.DASHSCOPE_API_KEY,
+  };
 });
 
 // ---- App version IPC ----

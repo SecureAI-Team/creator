@@ -42,6 +42,10 @@ contextBridge.exposeInMainWorld("creatorDesktop", {
   // External links
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
 
+  // API key management
+  setApiKey: (provider, key) => ipcRenderer.invoke("set-api-key", { provider, key }),
+  getApiKeyStatus: () => ipcRenderer.invoke("get-api-key-status"),
+
   // App version (async, from main process - most reliable in asar)
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
 

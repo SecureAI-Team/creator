@@ -84,16 +84,40 @@ export default function SettingsPage() {
   const [copied, setCopied] = useState(false);
   const [useLocalOpenClaw, setUseLocalOpenClaw] = useState(true);
   const [desktopReady, setDesktopReady] = useState(false);
+  const [dashscopeKey, setDashscopeKey] = useState("");
+  const [dashscopeKeyStatus, setDashscopeKeyStatus] = useState<{ dashscope: boolean; dashscopeFromEnv: boolean } | null>(null);
+  const [savingKey, setSavingKey] = useState(false);
+  const [keySaved, setKeySaved] = useState(false);
 
   /* Load desktop config (when in Electron) */
   useEffect(() => {
-    const api = typeof window !== "undefined" ? (window as Window & { creatorDesktop?: { getConfig?: () => Promise<{ useLocalOpenClaw?: boolean }> } }).creatorDesktop : undefined;
+    const api = typeof window !== "undefined" ? (window as Window & { creatorDesktop?: { getConfig?: () => Promise<{ useLocalOpenClaw?: boolean }>; getApiKeyStatus?: () => Promise<{ dashscope: boolean; dashscopeFromEnv: boolean }> } }).creatorDesktop : undefined;
     if (!api?.getConfig) return;
     api.getConfig().then((cfg: { useLocalOpenClaw?: boolean }) => {
       setUseLocalOpenClaw(cfg?.useLocalOpenClaw ?? true);
       setDesktopReady(true);
     });
+    if (api?.getApiKeyStatus) {
+      api.getApiKeyStatus().then(setDashscopeKeyStatus);
+    }
   }, []);
+
+  const handleSaveDashscopeKey = async () => {
+    const api = (window as Window & { creatorDesktop?: { setApiKey?: (provider: string, key: string) => Promise<boolean>; getApiKeyStatus?: () => Promise<{ dashscope: boolean; dashscopeFromEnv: boolean }> } }).creatorDesktop;
+    if (!api?.setApiKey) return;
+    setSavingKey(true);
+    try {
+      await api.setApiKey("dashscope", dashscopeKey);
+      setKeySaved(true);
+      setTimeout(() => setKeySaved(false), 2000);
+      setDashscopeKey("");
+      if (api.getApiKeyStatus) {
+        setDashscopeKeyStatus(await api.getApiKeyStatus());
+      }
+    } finally {
+      setSavingKey(false);
+    }
+  };
 
   const handleToggleLocal = async (v: boolean) => {
     setUseLocalOpenClaw(v);
@@ -426,20 +450,55 @@ export default function SettingsPage() {
       </Section>
 
       {/* ---------- API Keys ---------- */}
-      <Section icon={Key} iconBg="bg-amber-50" iconColor="text-amber-600" title="API 密钥" description="用于外部集成和开发者访问">
-        <div className="space-y-3">
-          <p className="text-sm text-gray-500">
-            API 密钥可用于通过 REST API 访问你的创作助手服务。请妥善保管，不要泄露给他人。
-          </p>
-          <div className="flex items-center gap-2">
-            <Input
-              value="sk-••••••••••••••••••••••••"
-              readOnly
-              className="rounded-xl border-gray-200 bg-gray-50 font-mono text-sm text-gray-500"
-            />
-            <Button variant="outline" size="sm" className="rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50">
-              重新生成
-            </Button>
+      <Section icon={Key} iconBg="bg-amber-50" iconColor="text-amber-600" title="AI 模型密钥" description="本地引擎使用的 AI 模型 API Key">
+        <div className="space-y-4">
+          {/* DashScope / Qwen */}
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+              DashScope API Key（通义千问）
+            </label>
+            <p className="text-xs text-gray-400 mb-2">
+              用于本地 OpenClaw 引擎调用 Qwen 模型。从{" "}
+              <a href="https://dashscope.console.aliyun.com/apiKey" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                阿里云 DashScope 控制台
+              </a>{" "}
+              获取。
+            </p>
+            {desktopReady ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="password"
+                    placeholder="sk-..."
+                    value={dashscopeKey}
+                    onChange={(e) => setDashscopeKey(e.target.value)}
+                    className="rounded-xl border-gray-200 font-mono text-sm"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50 shrink-0"
+                    onClick={handleSaveDashscopeKey}
+                    disabled={savingKey || !dashscopeKey.trim()}
+                  >
+                    {savingKey ? <Loader2 className="h-4 w-4 animate-spin" /> : keySaved ? <Check className="h-4 w-4 text-green-500" /> : "保存"}
+                  </Button>
+                </div>
+                {dashscopeKeyStatus && (
+                  <p className="text-xs mt-1.5">
+                    {dashscopeKeyStatus.dashscope ? (
+                      <span className="text-green-600">✓ 已配置（保存在客户端）</span>
+                    ) : dashscopeKeyStatus.dashscopeFromEnv ? (
+                      <span className="text-green-600">✓ 已配置（系统环境变量）</span>
+                    ) : (
+                      <span className="text-amber-600">✗ 未配置 — 本地引擎无法调用 AI 模型</span>
+                    )}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-gray-400">仅在桌面客户端中可配置</p>
+            )}
           </div>
         </div>
       </Section>
