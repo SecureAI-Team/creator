@@ -432,29 +432,33 @@ function createBridge(serverUrl, options = {}) {
           let cookies = [];
 
           if (rpcOk) {
-            try {
-              // browser.request expects HTTP-like method + path
-              const domain = markers.domain.replace(/^\./, "");
-              const result = await gatewayRPC.request("browser.request", {
-                method: "GET",
-                path: `/cookies?url=https://${domain}`,
-                profile: "openclaw",
-              }, { timeoutMs: 15000 });
-              // Response may be: array of cookies, or { cookies: [...] }, or { data: [...] }
-              const raw = result?.body || result?.data || result;
-              const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-              cookies = Array.isArray(parsed) ? parsed : (parsed?.cookies || []);
-              bLog.info(`[${requestId}] RPC cookies returned ${cookies.length} cookie(s) for ${domain}`);
-            } catch (rpcErr) {
-              bLog.warn(`[${requestId}] RPC cookie fetch failed: ${rpcErr.message}, trying CLI fallback`);
+            const domain = markers.domain.replace(/^\./, "");
+            // Try multiple RPC methods since we don't know the exact API
+            const rpcAttempts = [
+              { method: "browser.cookies", params: { profile: "openclaw", urls: [`https://${domain}`] } },
+              { method: "browser.request", params: { method: "GET", path: "/cookies", profile: "openclaw" } },
+            ];
+            for (const attempt of rpcAttempts) {
+              try {
+                const result = await gatewayRPC.request(attempt.method, attempt.params, { timeoutMs: 10000 });
+                const raw = result?.body || result?.data || result;
+                const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+                cookies = Array.isArray(parsed) ? parsed : (parsed?.cookies || []);
+                bLog.info(`[${requestId}] RPC ${attempt.method} returned ${cookies.length} cookie(s)`);
+                if (cookies.length > 0) break;
+              } catch (rpcErr) {
+                bLog.debug(`[${requestId}] RPC ${attempt.method} failed: ${rpcErr.message}`);
+              }
+            }
+            if (cookies.length === 0) {
+              bLog.info(`[${requestId}] RPC cookie methods returned 0 cookies, trying CLI fallback`);
             }
           }
 
           // Fallback to CLI if RPC returned no cookies
           if (cookies.length === 0 && typeof options.onCheckCookies === "function") {
-            const domain = markers.domain.replace(/^\./, "");
-            bLog.info(`[${requestId}] Trying CLI cookie fallback for ${domain}...`);
-            cookies = await options.onCheckCookies(domain);
+            bLog.info(`[${requestId}] Trying CLI cookie fallback...`);
+            cookies = await options.onCheckCookies();
           }
 
           // Check if any marker cookie exists for this platform

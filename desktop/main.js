@@ -789,8 +789,9 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       try {
         const { execSync } = require("child_process");
         const wsDir = getWorkspaceDir();
-        const urlArg = domain ? ` --url "https://${domain}"` : "";
-        const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile openclaw --json${urlArg}`;
+        // NOTE: --url is NOT a cookie domain filter — it overrides the gateway URL.
+        // Just use plain `browser cookies --json` which returns all cookies from the profile.
+        const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile openclaw --json`;
         log.info(`Exec: ${cmd}`);
         const apiKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
         const result = execSync(cmd, {
@@ -801,10 +802,17 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
           env: { ...process.env, OPENCLAW_HOME: wsDir, DASHSCOPE_API_KEY: apiKey },
         });
         const output = result.toString().trim();
-        log.info(`CLI cookies raw output (${output.length} chars): ${output.substring(0, 200)}`);
-        const cookies = JSON.parse(output);
-        log.info(`Retrieved ${Array.isArray(cookies) ? cookies.length : 0} cookies from OpenClaw browser`);
-        return Array.isArray(cookies) ? cookies : [];
+        log.info(`CLI cookies raw output (${output.length} chars): ${output.substring(0, 500)}`);
+        // Try to parse: might be JSON array or JSON object with cookies field
+        let cookies = [];
+        try {
+          const parsed = JSON.parse(output);
+          cookies = Array.isArray(parsed) ? parsed : (parsed?.cookies || []);
+        } catch {
+          log.warn("CLI cookies output is not valid JSON");
+        }
+        log.info(`Retrieved ${cookies.length} cookies from OpenClaw browser`);
+        return cookies;
       } catch (err) {
         log.error(`Cookie check failed: ${err.message}`);
         return [];
@@ -824,23 +832,35 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
         await shell.openExternal(url);
         return;
       }
+      const { execSync } = require("child_process");
+      const wsDir = getWorkspaceDir();
+      const apiKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
+      const execOpts = {
+        timeout: 30000,
+        stdio: "pipe",
+        windowsHide: true,
+        cwd: wsDir,
+        env: { ...process.env, OPENCLAW_HOME: wsDir, DASHSCOPE_API_KEY: apiKey },
+      };
+
+      // Try `browser navigate` first (reuses existing tab, no empty tab issue).
+      // Falls back to `browser open` if navigate fails (browser not started yet).
       try {
-        const { execSync } = require("child_process");
-        const wsDir = getWorkspaceDir();
-        const apiKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
-        const cmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile openclaw`;
-        log.info(`Exec: ${cmd}`);
-        execSync(cmd, {
-          timeout: 30000,
-          stdio: "pipe",
-          windowsHide: true,
-          cwd: wsDir,
-          env: { ...process.env, OPENCLAW_HOME: wsDir, DASHSCOPE_API_KEY: apiKey },
-        });
-        log.info("OpenClaw browser opened successfully");
-      } catch (err) {
-        log.error(`OpenClaw browser open failed: ${err.message}, falling back to default browser`);
-        await shell.openExternal(url);
+        const navCmd = `"${sysNode}" "${ocPath}" browser navigate "${url}" --browser-profile openclaw`;
+        log.info(`Exec (navigate): ${navCmd}`);
+        execSync(navCmd, execOpts);
+        log.info("OpenClaw browser navigated successfully");
+      } catch {
+        // Navigate failed — browser may not be running. Use `open` which starts it.
+        try {
+          const openCmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile openclaw`;
+          log.info(`Exec (open): ${openCmd}`);
+          execSync(openCmd, execOpts);
+          log.info("OpenClaw browser opened successfully");
+        } catch (err) {
+          log.error(`OpenClaw browser open failed: ${err.message}, falling back to default browser`);
+          await shell.openExternal(url);
+        }
       }
     },
     logger: logger.createTaggedLogger("Bridge"),
