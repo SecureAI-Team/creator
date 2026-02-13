@@ -206,14 +206,24 @@ function findSystemNode() {
  * Ensure OpenClaw config exists with DashScope/Qwen provider (OpenAI-compatible)
  * and browser automation enabled.
  * Creates/updates {workspaceDir}/.openclaw/openclaw.json and workspace AGENTS.md.
+ *
+ * @param {string} workspaceDir
+ * @param {{ port?: number, token?: string }} [gatewayOpts] - gateway port & token
  */
-function ensureOpenClawConfig(workspaceDir) {
+function ensureOpenClawConfig(workspaceDir, gatewayOpts) {
   const configDir = path.join(workspaceDir, ".openclaw");
   const configPath = path.join(configDir, "openclaw.json");
 
   fs.mkdirSync(configDir, { recursive: true });
 
   const config = {
+    gateway: {
+      port: gatewayOpts?.port || 3000,
+      auth: {
+        mode: "token",
+        token: gatewayOpts?.token || "${OPENCLAW_GATEWAY_TOKEN}",
+      },
+    },
     agents: {
       defaults: {
         model: { primary: "dashscope/qwen-max-latest" },
@@ -241,9 +251,9 @@ function ensureOpenClawConfig(workspaceDir) {
     },
   };
 
-  // Always write config to ensure latest settings (browser config, etc.)
+  // Always write config to ensure latest settings (browser config, gateway port, etc.)
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-  log.info("Written OpenClaw config:", configPath);
+  log.info("Written OpenClaw config:", configPath, gatewayOpts?.port ? `(gateway port: ${gatewayOpts.port})` : "");
 
   // Create workspace AGENTS.md with platform login instructions
   ensureAgentsFile(workspaceDir);
@@ -601,6 +611,10 @@ async function startLocalOpenClawInternal() {
   localGatewayToken = `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const gatewayToken = localGatewayToken;
 
+  // Re-write config with the actual gateway port & token so that CLI commands
+  // (browser open, browser cookies, etc.) can connect to the running gateway
+  ensureOpenClawConfig(workspaceDir, { port: localOpenClawPort, token: gatewayToken });
+
   const runtimeEnv = {
     ...process.env,
     OPENCLAW_HOME: workspaceDir,
@@ -742,20 +756,22 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       const { publishToPlatform } = require("./platform-scripts");
       const sysNode = findSystemNode();
       const ocPath = getOpenClawPath();
+      const wsDir = getWorkspaceDir();
       if (!sysNode || !fs.existsSync(ocPath)) {
         throw new Error("OpenClaw or system Node.js not available");
       }
-      return await publishToPlatform(platform, payload, { systemNode: sysNode, openclawPath: ocPath });
+      return await publishToPlatform(platform, payload, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir });
     },
     onDataRefresh: async (platform) => {
       log.info(`Data refresh for: ${platform}`);
       const { collectPlatformData } = require("./platform-scripts");
       const sysNode = findSystemNode();
       const ocPath = getOpenClawPath();
+      const wsDir = getWorkspaceDir();
       if (!sysNode || !fs.existsSync(ocPath)) {
         throw new Error("OpenClaw or system Node.js not available");
       }
-      return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath });
+      return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir });
     },
     onCheckCookies: async () => {
       log.info("Checking browser cookies via OpenClaw CLI...");
@@ -767,8 +783,15 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       }
       try {
         const { execSync } = require("child_process");
+        const wsDir = getWorkspaceDir();
         const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile openclaw --json`;
-        const result = execSync(cmd, { timeout: 15000, stdio: "pipe", windowsHide: true });
+        const result = execSync(cmd, {
+          timeout: 15000,
+          stdio: "pipe",
+          windowsHide: true,
+          cwd: wsDir,
+          env: { ...process.env, OPENCLAW_HOME: wsDir },
+        });
         const cookies = JSON.parse(result.toString().trim());
         log.info(`Retrieved ${Array.isArray(cookies) ? cookies.length : 0} cookies from OpenClaw browser`);
         return Array.isArray(cookies) ? cookies : [];
@@ -793,9 +816,16 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       }
       try {
         const { execSync } = require("child_process");
+        const wsDir = getWorkspaceDir();
         const cmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile openclaw`;
         log.info(`Exec: ${cmd}`);
-        execSync(cmd, { timeout: 30000, stdio: "pipe", windowsHide: true });
+        execSync(cmd, {
+          timeout: 30000,
+          stdio: "pipe",
+          windowsHide: true,
+          cwd: wsDir,
+          env: { ...process.env, OPENCLAW_HOME: wsDir },
+        });
         log.info("OpenClaw browser opened successfully");
       } catch (err) {
         log.error(`OpenClaw browser open failed: ${err.message}, falling back to default browser`);

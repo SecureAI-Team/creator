@@ -26,19 +26,24 @@ const { execSync } = require("child_process");
  * @param {string} systemNode - Path to system Node.js executable
  * @param {string} openclawPath - Path to openclaw.mjs
  * @param {string} command - Browser sub-command (e.g. "open https://example.com")
- * @param {object} opts - Options: { timeout, profile }
+ * @param {object} opts - Options: { timeout, profile, workspaceDir }
  * @returns {string} Command stdout
  */
 function execBrowser(systemNode, openclawPath, command, opts = {}) {
-  const { timeout = 30000, profile = "openclaw" } = opts;
+  const { timeout = 30000, profile = "openclaw", workspaceDir } = opts;
   // Build command - don't double-quote the command part, let it pass through
   const fullCmd = `"${systemNode}" "${openclawPath}" browser ${command} --browser-profile ${profile}`;
+
+  // Derive workspace dir from openclawPath: .../workspace/node_modules/openclaw/openclaw.mjs
+  const wsDir = workspaceDir || require("path").resolve(openclawPath, "..", "..", "..");
   try {
     return execSync(fullCmd, {
       timeout,
       stdio: "pipe",
       windowsHide: true,
       encoding: "utf-8",
+      cwd: wsDir,
+      env: { ...process.env, OPENCLAW_HOME: wsDir },
     }).trim();
   } catch (err) {
     // Extract meaningful error from stderr/stdout
@@ -68,7 +73,7 @@ function escapeArg(str) {
  * Create a bound helper object with systemNode/openclawPath pre-filled.
  */
 function createHelpers(ctx) {
-  const exec = (command, opts) => execBrowser(ctx.systemNode, ctx.openclawPath, command, opts);
+  const exec = (command, opts) => execBrowser(ctx.systemNode, ctx.openclawPath, command, { workspaceDir: ctx.workspaceDir, ...opts });
   return {
     /** Navigate to a URL in the managed browser */
     navigate: (url, opts) => exec(`navigate ${escapeArg(url)}`, { timeout: 30000, ...opts }),
