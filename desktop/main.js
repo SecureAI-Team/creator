@@ -216,12 +216,17 @@ function ensureOpenClawConfig(workspaceDir, gatewayOpts) {
 
   fs.mkdirSync(configDir, { recursive: true });
 
+  // Resolve actual API key value: electron-store > env var > placeholder
+  // We write the real value so that ALL processes (gateway, CLI browser commands)
+  // can read the config without needing the env var to be set.
+  const dashscopeKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
+
   const config = {
     gateway: {
       port: gatewayOpts?.port || 3000,
       auth: {
         mode: "token",
-        token: gatewayOpts?.token || "${OPENCLAW_GATEWAY_TOKEN}",
+        token: gatewayOpts?.token || "",
       },
     },
     agents: {
@@ -239,7 +244,7 @@ function ensureOpenClawConfig(workspaceDir, gatewayOpts) {
       providers: {
         dashscope: {
           baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-          apiKey: "${DASHSCOPE_API_KEY}",
+          apiKey: dashscopeKey,
           api: "openai-completions",
           models: [
             { id: "qwen-max-latest", name: "Qwen Max" },
