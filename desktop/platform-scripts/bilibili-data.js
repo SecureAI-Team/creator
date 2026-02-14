@@ -84,63 +84,81 @@ function flattenSnapshot(snapshot) {
 /**
  * Try to find a numeric value near a given label in the snapshot text.
  * First flattens the accessibility tree snapshot, then searches for
- * label-value pairs in both directions:
- *   1. Label followed by numbers: "粉丝总数 1 408" → takes max (408)
- *   2. Number followed by label: "1234 关注数"
+ * label-value pairs.
  *
- * IMPORTANT: Many dashboards show a daily change value BEFORE the total:
- *   粉丝总数  +1   408     ← "1" is change, "408" is real total
- *   播放量    43   6,272   ← "43" is change, "6,272" is real total
- * We collect ALL consecutive numbers after the label and take the LARGEST.
+ * Key design decisions:
+ *   1. Try ALL occurrences of each label (not just the first).
+ *      "视频号ID:" might match "视频" but has no numbers;
+ *      the standalone "视频 36" further in the text does.
+ *   2. Collect ALL consecutive numbers after the label and take the LARGEST.
+ *      "粉丝总数 1 408" → max(1,408) = 408 (total, not change).
+ *   3. If a label is found with numbers (even if all are 0), return immediately.
+ *      "分享量 0" should return 0, NOT fall through to reverse pattern
+ *      which would incorrectly pick up a number from an adjacent metric.
+ *   4. Reverse pattern (number BEFORE label) is only tried as last resort
+ *      when NO forward match found any numbers at all.
  */
 function findMetric(snapshotText, labels) {
   // Flatten the accessibility tree to plain text for easier parsing
   const flat = flattenSnapshot(snapshotText);
 
   for (const label of labels) {
-    // Find the label position in the flat text
-    const idx = flat.indexOf(label);
-    if (idx === -1) continue;
+    // Try ALL occurrences of this label in the flat text.
+    // Example: "视频号ID: ... 视频 36" — first "视频" has no numbers,
+    // but second "视频 36" does.
+    let searchPos = 0;
+    while (searchPos < flat.length) {
+      const idx = flat.indexOf(label, searchPos);
+      if (idx === -1) break;
+      searchPos = idx + 1; // advance for next search
 
-    // Get text after the label
-    const afterLabel = flat.substring(idx + label.length);
+      // Get text after the label
+      const afterLabel = flat.substring(idx + label.length);
 
-    // Split into space-separated tokens and collect consecutive numeric tokens
-    // Stop at the first non-numeric token (which is likely the next label)
-    const tokens = afterLabel.trim().split(/\s+/);
-    const numbers = [];
-    for (const token of tokens) {
-      // Clean the token: remove commas, colons, parens, unit suffixes like 人/次/篇/个
-      const cleaned = token.replace(/[,:：()（）人次篇个+\-]/g, "").trim();
-      if (!cleaned) continue;
-      // Check if it's a valid number (possibly with 万/亿 suffix)
-      if (/^[\d.]+[万亿]?$/.test(cleaned)) {
-        numbers.push(parseChineseNumber(cleaned));
-      } else {
-        // Non-numeric token reached → stop (likely next metric label)
-        break;
+      // Split into space-separated tokens and collect consecutive numeric tokens
+      // Stop at the first non-numeric token (likely next metric label)
+      const tokens = afterLabel.trim().split(/\s+/);
+      const numbers = [];
+      for (const token of tokens) {
+        // Clean: remove commas, colons, parens, unit suffixes like 人/次/篇/个
+        const cleaned = token.replace(/[,:：()（）人次篇个+\-]/g, "").trim();
+        if (!cleaned) continue;
+        if (/^[\d.]+[万亿]?$/.test(cleaned)) {
+          numbers.push(parseChineseNumber(cleaned));
+        } else {
+          break; // Non-numeric → stop
+        }
       }
-    }
 
-    if (numbers.length > 0) {
-      // Take the LARGEST number — in "change total" patterns, total > change
-      const maxVal = Math.max(...numbers);
-      if (maxVal > 0) return maxVal;
+      if (numbers.length > 0) {
+        // Label found with numbers → return max, EVEN IF IT'S 0.
+        // A genuine "分享量 0" must return 0, not fall through to
+        // the reverse pattern which would pick up adjacent metrics.
+        return Math.max(...numbers);
+      }
+      // This occurrence of the label had no numbers after it;
+      // try the next occurrence of the same label
     }
   }
 
-  // Reverse pattern: number BEFORE label — "1234 粉丝数"
+  // Reverse pattern (last resort): number BEFORE label — "1234 粉丝数"
+  // Only reached if NO forward match found numbers at all.
   for (const label of labels) {
-    const idx = flat.indexOf(label);
-    if (idx === -1 || idx === 0) continue;
+    let searchPos = 0;
+    while (searchPos < flat.length) {
+      const idx = flat.indexOf(label, searchPos);
+      if (idx === -1) break;
+      searchPos = idx + 1;
+      if (idx === 0) continue;
 
-    const beforeLabel = flat.substring(0, idx).trimEnd();
-    const lastToken = beforeLabel.split(/\s+/).pop();
-    if (lastToken) {
-      const cleaned = lastToken.replace(/[,]/g, "");
-      if (/^[\d.]+[万亿]?$/.test(cleaned)) {
-        const val = parseChineseNumber(cleaned);
-        if (val > 0) return val;
+      const beforeLabel = flat.substring(0, idx).trimEnd();
+      const lastToken = beforeLabel.split(/\s+/).pop();
+      if (lastToken) {
+        const cleaned = lastToken.replace(/[,]/g, "");
+        if (/^[\d.]+[万亿]?$/.test(cleaned)) {
+          const val = parseChineseNumber(cleaned);
+          if (val > 0) return val;
+        }
       }
     }
   }
