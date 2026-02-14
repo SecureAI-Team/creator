@@ -221,7 +221,7 @@ async function collect(helpers) {
     // Poll until we see data-related keywords
     dataText = await waitForContent(
       helpers,
-      ["粉丝数", "播放量", "总播放", "点赞数", "互动数", "涨粉"],
+      ["粉丝总数", "粉丝数", "播放量", "点赞", "互动", "涨粉"],
       15000,
       2000
     );
@@ -233,7 +233,7 @@ async function collect(helpers) {
       helpers.navigate("https://member.bilibili.com/platform/data/overview");
       dataText = await waitForContent(
         helpers,
-        ["粉丝数", "播放量", "总播放", "点赞数", "互动数", "涨粉"],
+        ["粉丝总数", "粉丝数", "播放量", "点赞", "互动", "涨粉"],
         12000,
         2000
       );
@@ -247,12 +247,22 @@ async function collect(helpers) {
     result.rawData.overviewFlatText = flattenSnapshot(dataText).substring(0, 3000);
 
     // Parse metrics from the data overview page
-    result.followers = findMetric(dataText, ["粉丝数", "粉丝总数", "粉丝", "关注数", "涨粉"]);
+    // Bilibili data page layout: "粉丝总数 [change] [total]" "播放量 [change] [total]"
+    // findMetric takes the MAX of consecutive numbers → gets total, not change
+    result.followers = findMetric(dataText, ["粉丝总数", "粉丝数", "粉丝", "关注数"]);
     result.totalViews = findMetric(dataText, ["播放量", "总播放量", "总播放", "播放数", "阅读量"]);
-    result.totalLikes = findMetric(dataText, ["点赞数", "点赞", "获赞"]);
-    result.totalComments = findMetric(dataText, ["评论数", "评论", "弹幕数"]);
-    result.totalShares = findMetric(dataText, ["分享数", "分享", "转发数"]);
+    result.totalLikes = findMetric(dataText, ["点赞", "点赞数", "获赞"]);
+    result.totalComments = findMetric(dataText, ["评论", "评论数", "弹幕"]);
+    result.totalShares = findMetric(dataText, ["分享", "分享数", "转发数"]);
     result.contentCount = findMetric(dataText, ["投稿数", "稿件数", "视频数", "投稿"]);
+
+    // Bilibili-specific: store extra metrics in rawData
+    const coins = findMetric(dataText, ["投币", "硬币"]);
+    if (coins > 0) result.rawData.coins = coins;
+    const favorites = findMetric(dataText, ["收藏"]);
+    if (favorites > 0) result.rawData.favorites = favorites;
+    const danmaku = findMetric(dataText, ["弹幕"]);
+    if (danmaku > 0) result.rawData.danmaku = danmaku;
   }
 
   // ---- Step 4: Also grab home page data as supplement ----

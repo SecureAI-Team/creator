@@ -228,6 +228,7 @@ try { dataCollectors.douyin = require("./douyin-data").collect; } catch {}
 try { dataCollectors.xiaohongshu = require("./xiaohongshu-data").collect; } catch {}
 try { dataCollectors.kuaishou = require("./kuaishou-data").collect; } catch {}
 try { dataCollectors.zhihu = require("./zhihu-data").collect; } catch {}
+try { dataCollectors["weixin-channels"] = require("./weixin-channels-data").collect; } catch {}
 
 /**
  * Cookie markers for detecting login state per platform.

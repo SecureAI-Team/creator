@@ -5,12 +5,14 @@
  * from the dashboard overview page.
  *
  * Key metrics on the creator dashboard:
- *   - 粉丝总量 / 粉丝数        → followers
- *   - 总播放量 / 播放量         → totalViews
- *   - 点赞量 / 总获赞          → totalLikes
- *   - 评论量                   → totalComments
- *   - 转发量 / 分享量           → totalShares
- *   - 作品数 / 投稿数           → contentCount
+ *   Profile section (cumulative totals):
+ *     关注 22, 粉丝 994, 获赞 4142
+ *   Data section (per-video or 7-day stats):
+ *     播放量 45 (video), 点赞量 1 (video)
+ *     播放量 72 (7-day), 作品点赞 1 (7-day)
+ *
+ * IMPORTANT: Label priority matters! "获赞" (total=4142) must come BEFORE
+ * "点赞量" (per-video=1) to capture the correct aggregate value.
  */
 
 const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
@@ -54,9 +56,10 @@ async function collect(helpers) {
     result.rawData.homeSnapshot = homeText.substring(0, 5000);
     result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 3000);
 
+    // Profile section cumulative labels first, then data section labels
     result.followers = findMetric(homeText, ["粉丝总量", "粉丝数", "粉丝", "关注者"]);
-    result.totalViews = findMetric(homeText, ["总播放量", "播放量", "播放总量", "展现量"]);
-    result.totalLikes = findMetric(homeText, ["点赞量", "总获赞", "获赞", "点赞数"]);
+    result.totalLikes = findMetric(homeText, ["获赞", "总获赞", "点赞量", "点赞数"]);
+    result.totalViews = findMetric(homeText, ["总播放量", "播放总量", "播放量", "展现量"]);
     result.totalComments = findMetric(homeText, ["评论量", "评论数", "评论"]);
     result.totalShares = findMetric(homeText, ["转发量", "分享量", "分享数", "转发数"]);
     result.contentCount = findMetric(homeText, ["作品数", "作品", "投稿数", "已发布"]);
@@ -95,10 +98,10 @@ async function collect(helpers) {
         result.followers = findMetric(dataText, ["粉丝总量", "粉丝数", "粉丝"]);
       }
       if (result.totalViews === 0) {
-        result.totalViews = findMetric(dataText, ["总播放量", "播放量", "播放"]);
+        result.totalViews = findMetric(dataText, ["总播放量", "播放总量", "播放量", "播放"]);
       }
       if (result.totalLikes === 0) {
-        result.totalLikes = findMetric(dataText, ["点赞量", "获赞", "点赞"]);
+        result.totalLikes = findMetric(dataText, ["获赞", "总获赞", "点赞量", "点赞"]);
       }
       if (result.totalComments === 0) {
         result.totalComments = findMetric(dataText, ["评论量", "评论数", "评论"]);
