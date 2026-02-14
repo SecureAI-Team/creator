@@ -152,21 +152,17 @@ async function collect(helpers) {
   }
   await helpers.sleep(5000);
 
-  // ---- Step 2: Click "数据中心" in sidebar to trigger SPA route ----
+  // ---- Step 2: Click "数据中心" in sidebar using ref from snapshot ----
+  // OpenClaw CLI expects ref values (e.g. "e58"), not Playwright selectors.
+  // Take a snapshot, find the ref for "数据中心", then click it.
   let dataPageLoaded = false;
-  const clickSelectors = [
-    'text="数据中心"',
-    'text=数据中心',
-    'generic:has-text("数据中心")',
-  ];
-  for (const sel of clickSelectors) {
-    try {
-      helpers.click(sel);
-      dataPageLoaded = true;
-      break;
-    } catch {
-      // Try next selector
+  try {
+    const homeSnapshot = helpers.snapshot();
+    if (homeSnapshot) {
+      dataPageLoaded = helpers.clickByText(homeSnapshot, "数据中心");
     }
+  } catch {
+    // snapshot or click failed
   }
 
   // ---- Step 3: Wait for data content to appear ----

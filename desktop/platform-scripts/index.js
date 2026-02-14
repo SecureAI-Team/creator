@@ -70,6 +70,42 @@ function escapeArg(str) {
 }
 
 /**
+ * Find the ref attribute of an element containing the given text in a snapshot.
+ * OpenClaw's `browser click` expects ref values (e.g. "e58"), not Playwright selectors.
+ *
+ * Snapshot format:
+ *   generic [ref=e58] [cursor=pointer]:
+ *     - generic [ref=e59]:
+ *     - generic [ref=e60]: 数据中心
+ *
+ * For text on a line like `generic [ref=e60]: 数据中心`, returns "e60".
+ * Also looks for the nearest clickable parent (with [cursor=pointer]).
+ *
+ * @param {string} snapshot - The accessibility tree text
+ * @param {string} text - The text to search for
+ * @returns {{ ref: string|null, clickableRef: string|null }}
+ */
+function findRefByText(snapshot, text) {
+  if (!snapshot || !text) return { ref: null, clickableRef: null };
+  const lines = snapshot.split("\n");
+  let lastClickableRef = null;
+  for (const line of lines) {
+    // Track the most recent clickable ref (elements with cursor=pointer)
+    if (line.includes("[cursor=pointer]")) {
+      const rm = line.match(/\[ref=(e?\d+)\]/);
+      if (rm) lastClickableRef = rm[1];
+    }
+    // Check if this line contains the target text
+    if (line.includes(text)) {
+      const rm = line.match(/\[ref=(e?\d+)\]/);
+      const directRef = rm ? rm[1] : null;
+      return { ref: directRef, clickableRef: lastClickableRef || directRef };
+    }
+  }
+  return { ref: null, clickableRef: null };
+}
+
+/**
  * Create a bound helper object with systemNode/openclawPath pre-filled.
  */
 function createHelpers(ctx) {
@@ -83,7 +119,7 @@ function createHelpers(ctx) {
     snapshot: (opts) => exec("snapshot", { timeout: 15000, ...opts }),
     /** Get interactive-only snapshot */
     snapshotInteractive: (opts) => exec("snapshot --interactive", { timeout: 15000, ...opts }),
-    /** Click an element by selector */
+    /** Click an element by ref (from snapshot, e.g. "e58") */
     click: (selector, opts) => exec(`click ${escapeArg(selector)}`, { timeout: 15000, ...opts }),
     /** Type text into an element */
     type: (selector, text, opts) => exec(`type ${escapeArg(selector)} ${escapeArg(text)}`, { timeout: 15000, ...opts }),
@@ -98,10 +134,35 @@ function createHelpers(ctx) {
     },
     /** Take a screenshot */
     screenshot: (opts) => exec("screenshot", { timeout: 15000, ...opts }),
+    /**
+     * Find element ref by visible text in a snapshot, then click it.
+     * @param {string} snapshot - Accessibility tree snapshot text
+     * @param {string} text - Text to find and click
+     * @returns {boolean} true if click succeeded
+     */
+    clickByText: (snapshot, text, opts) => {
+      const { ref, clickableRef } = findRefByText(snapshot, text);
+      const targetRef = clickableRef || ref;
+      if (!targetRef) return false;
+      try {
+        exec(`click ${escapeArg(targetRef)}`, { timeout: 10000, ...opts });
+        return true;
+      } catch {
+        // If clickable parent fails, try the direct ref
+        if (ref && ref !== targetRef) {
+          try {
+            exec(`click ${escapeArg(ref)}`, { timeout: 10000, ...opts });
+            return true;
+          } catch { /* give up */ }
+        }
+        return false;
+      }
+    },
     /** Raw exec for custom commands */
     exec,
     sleep,
     escapeArg,
+    findRefByText,
   };
 }
 
@@ -139,7 +200,41 @@ try { dataCollectors.kuaishou = require("./kuaishou-data").collect; } catch {}
 try { dataCollectors.zhihu = require("./zhihu-data").collect; } catch {}
 
 /**
+ * Cookie markers for detecting login state per platform.
+ * If any of the named cookies exist for the domain, the user is logged in.
+ */
+const PLATFORM_COOKIE_MARKERS = {
+  bilibili: { domain: ".bilibili.com", names: ["SESSDATA", "bili_jct"] },
+  douyin: { domain: ".douyin.com", names: ["sessionid", "passport_csrf_token"] },
+  xiaohongshu: { domain: ".xiaohongshu.com", names: ["web_session", "a1"] },
+  youtube: { domain: ".youtube.com", names: ["SID", "SSID"] },
+  "weixin-mp": { domain: ".qq.com", names: ["slave_sid", "slave_user"] },
+  "weixin-channels": { domain: ".qq.com", names: ["slave_sid", "slave_user"] },
+  kuaishou: { domain: ".kuaishou.com", names: ["passToken", "kuaishou.server.web_st"] },
+  zhihu: { domain: ".zhihu.com", names: ["z_c0"] },
+  weibo: { domain: ".weibo.com", names: ["SUB", "SUBP"] },
+  toutiao: { domain: ".toutiao.com", names: ["sso_uid_tt", "sessionid"] },
+};
+
+/**
+ * Check if the user is logged into a platform by examining cookies.
+ * @param {object} helpers - Helpers with cookies() method
+ * @param {string} platform - Platform key
+ * @returns {boolean} true if logged in
+ */
+function isPlatformLoggedIn(cookies, platform) {
+  const markers = PLATFORM_COOKIE_MARKERS[platform];
+  if (!markers) return true; // Unknown platform, assume ok and let collector try
+  return cookies.some(
+    (c) => c.domain && c.domain.includes(markers.domain) && markers.names.includes(c.name)
+  );
+}
+
+/**
  * Collect analytics data from one or more platforms.
+ *
+ * Before running each collector, checks cookies to see if the user is
+ * logged in. Skips unlogged platforms to save time (~20-30s each).
  *
  * @param {string} platform - "all" or specific platform key
  * @param {object} ctx - { systemNode, openclawPath }
@@ -152,6 +247,14 @@ async function collectPlatformData(platform, ctx) {
     ? Object.keys(dataCollectors)
     : [platform];
 
+  // Fetch cookies once for login check (instead of per-platform)
+  let allCookies = [];
+  try {
+    allCookies = helpers.cookies();
+  } catch {
+    // If cookies fail, proceed anyway and let collectors try
+  }
+
   const results = {};
 
   for (const p of targets) {
@@ -160,6 +263,13 @@ async function collectPlatformData(platform, ctx) {
       results[p] = { success: false, error: `暂不支持采集 ${p} 数据` };
       continue;
     }
+
+    // Skip platforms that are not logged in (saves 20-30s per platform)
+    if (allCookies.length > 0 && !isPlatformLoggedIn(allCookies, p)) {
+      results[p] = { success: false, error: `未登录 ${p}，请先在平台页面中登录` };
+      continue;
+    }
+
     try {
       const data = await collector(helpers);
       results[p] = { success: true, ...data };
@@ -175,6 +285,7 @@ module.exports = {
   execBrowser,
   sleep,
   escapeArg,
+  findRefByText,
   createHelpers,
   publishToPlatform,
   collectPlatformData,
