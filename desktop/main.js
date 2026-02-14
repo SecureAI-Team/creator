@@ -238,6 +238,8 @@ function ensureOpenClawConfig(workspaceDir, gatewayOpts) {
       enabled: true,
       defaultProfile: "openclaw",
       headless: false,
+      timeout: 30000,
+      navigationTimeout: 60000,
     },
     models: {
       mode: "merge",
@@ -697,8 +699,9 @@ async function startLocalOpenClawInternal() {
 
   log.info("OpenClaw process spawned, pid:", openclawProcess.pid);
 
-  // Wait for OpenClaw to actually start listening before declaring success
-  const ready = await waitForOpenClawReady(localOpenClawPort, 20000, 1500);
+  // Wait for OpenClaw to actually start listening before declaring success.
+  // Exe/packaged env can be slower (antivirus, disk); use 45s so we don't falsely warn.
+  const ready = await waitForOpenClawReady(localOpenClawPort, 45000, 1500);
   if (ready) {
     log.info("OpenClaw is ready and accepting connections");
   } else {
@@ -833,24 +836,25 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       const wsDir = getWorkspaceDir();
       const apiKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
       const execOpts = {
-        timeout: 30000,
+        timeout: 70000,
         stdio: "pipe",
         windowsHide: true,
         cwd: wsDir,
         env: { ...process.env, OPENCLAW_HOME: wsDir, DASHSCOPE_API_KEY: apiKey },
       };
+      const navTimeoutFlag = " --timeout 60000";
 
       // Try `browser navigate` first (reuses existing tab, no empty tab issue).
       // Falls back to `browser open` if navigate fails (browser not started yet).
       try {
-        const navCmd = `"${sysNode}" "${ocPath}" browser navigate "${url}" --browser-profile ${browserProfile}`;
+        const navCmd = `"${sysNode}" "${ocPath}" browser navigate "${url}" --browser-profile ${browserProfile}${navTimeoutFlag}`;
         log.info(`Exec (navigate): ${navCmd}`);
         execSync(navCmd, execOpts);
         log.info(`OpenClaw browser navigated successfully (profile=${browserProfile})`);
       } catch {
         // Navigate failed — browser may not be running. Use `open` which starts it.
         try {
-          const openCmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile ${browserProfile}`;
+          const openCmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile ${browserProfile}${navTimeoutFlag}`;
           log.info(`Exec (open): ${openCmd}`);
           execSync(openCmd, execOpts);
           log.info(`OpenClaw browser opened successfully (profile=${browserProfile})`);

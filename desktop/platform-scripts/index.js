@@ -52,10 +52,16 @@ function getProfileName(platformKey, accountId) {
  * @param {object} opts - Options: { timeout, profile, workspaceDir }
  * @returns {string} Command stdout
  */
+// Navigation/open in exe can be slower; OpenClaw CLI default is 20s and often too short.
+const OPENCLAW_NAVIGATION_TIMEOUT_MS = 60000;
+
 function execBrowser(systemNode, openclawPath, command, opts = {}) {
-  const { timeout = 30000, profile = "openclaw", workspaceDir } = opts;
+  const { timeout = 30000, profile = "openclaw", workspaceDir, openclawTimeout } = opts;
   // Build command - don't double-quote the command part, let it pass through
-  const fullCmd = `"${systemNode}" "${openclawPath}" browser ${command} --browser-profile ${profile}`;
+  let fullCmd = `"${systemNode}" "${openclawPath}" browser ${command} --browser-profile ${profile}`;
+  if (openclawTimeout != null) {
+    fullCmd += ` --timeout ${openclawTimeout}`;
+  }
 
   // Derive workspace dir from openclawPath: .../workspace/node_modules/openclaw/openclaw.mjs
   const wsDir = workspaceDir || require("path").resolve(openclawPath, "..", "..", "..");
@@ -142,9 +148,9 @@ function createHelpers(ctx) {
   });
   return {
     /** Navigate to a URL in the managed browser */
-    navigate: (url, opts) => exec(`navigate ${escapeArg(url)}`, { timeout: 60000, ...opts }),
+    navigate: (url, opts) => exec(`navigate ${escapeArg(url)}`, { timeout: 70000, openclawTimeout: OPENCLAW_NAVIGATION_TIMEOUT_MS, ...opts }),
     /** Open a URL (launches browser if not running) */
-    open: (url, opts) => exec(`open ${escapeArg(url)}`, { timeout: 60000, ...opts }),
+    open: (url, opts) => exec(`open ${escapeArg(url)}`, { timeout: 70000, openclawTimeout: OPENCLAW_NAVIGATION_TIMEOUT_MS, ...opts }),
     /** Get the page snapshot (accessibility tree) */
     snapshot: (opts) => exec("snapshot", { timeout: 15000, ...opts }),
     /** Get interactive-only snapshot */
