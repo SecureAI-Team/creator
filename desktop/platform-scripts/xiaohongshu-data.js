@@ -13,7 +13,7 @@
  *   - 笔记数 / 作品数           → contentCount
  */
 
-const { findMetric } = require("./bilibili-data");
+const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
 
 /**
  * Collect data from Xiaohongshu creator center.
@@ -31,24 +31,28 @@ async function collect(helpers) {
   };
 
   // ---- Step 1: Navigate to Xiaohongshu creator center ----
+  // Xiaohongshu can be slow to load. Catch timeouts and proceed.
   try {
     helpers.navigate("https://creator.xiaohongshu.com");
   } catch {
-    helpers.open("https://creator.xiaohongshu.com");
+    try {
+      helpers.open("https://creator.xiaohongshu.com");
+    } catch {
+      // Timeout OK — browser should be open, page may still be loading
+    }
   }
-  await helpers.sleep(5000);
 
-  // ---- Step 2: Get home page snapshot ----
-  let homeText = "";
-  try {
-    homeText = helpers.snapshot();
-  } catch {
-    await helpers.sleep(3000);
-    try { homeText = helpers.snapshot(); } catch {}
-  }
+  // ---- Step 2: Wait for content and get snapshot ----
+  let homeText = await waitForContent(
+    helpers,
+    ["粉丝", "笔记", "创作者", "数据", "赞藏"],
+    20000,
+    3000
+  );
 
   if (homeText) {
     result.rawData.homeSnapshot = homeText.substring(0, 5000);
+    result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 3000);
 
     result.followers = findMetric(homeText, ["粉丝数", "粉丝", "关注者"]);
     result.totalViews = findMetric(homeText, ["观看量", "阅读量", "曝光量", "浏览量", "展现量"]);
@@ -75,6 +79,7 @@ async function collect(helpers) {
         const dataText = helpers.snapshot();
         if (dataText) {
           result.rawData.dataSnapshot = dataText.substring(0, 5000);
+          result.rawData.dataFlatText = flattenSnapshot(dataText).substring(0, 3000);
 
           if (result.followers === 0) {
             result.followers = findMetric(dataText, ["粉丝数", "粉丝", "关注"]);

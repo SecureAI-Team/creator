@@ -13,7 +13,7 @@
  *   - 内容数 / 回答数 / 文章数  → contentCount
  */
 
-const { findMetric } = require("./bilibili-data");
+const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
 
 /**
  * Collect data from Zhihu creator center.
@@ -34,21 +34,24 @@ async function collect(helpers) {
   try {
     helpers.navigate("https://www.zhihu.com/creator");
   } catch {
-    helpers.open("https://www.zhihu.com/creator");
+    try {
+      helpers.open("https://www.zhihu.com/creator");
+    } catch {
+      // Timeout OK
+    }
   }
-  await helpers.sleep(5000);
 
-  // ---- Step 2: Get home page snapshot ----
-  let homeText = "";
-  try {
-    homeText = helpers.snapshot();
-  } catch {
-    await helpers.sleep(3000);
-    try { homeText = helpers.snapshot(); } catch {}
-  }
+  // ---- Step 2: Wait for content and get snapshot ----
+  let homeText = await waitForContent(
+    helpers,
+    ["创作者", "关注者", "阅读", "赞同", "回答"],
+    20000,
+    3000
+  );
 
   if (homeText) {
     result.rawData.homeSnapshot = homeText.substring(0, 5000);
+    result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 3000);
 
     result.followers = findMetric(homeText, ["关注者", "粉丝数", "粉丝", "总关注"]);
     result.totalViews = findMetric(homeText, ["阅读量", "总阅读", "浏览量", "展示次数", "总阅读量"]);

@@ -13,7 +13,7 @@
  *   - 作品数 / 投稿数           → contentCount
  */
 
-const { findMetric } = require("./bilibili-data");
+const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
 
 /**
  * Collect data from Douyin creator dashboard.
@@ -31,24 +31,28 @@ async function collect(helpers) {
   };
 
   // ---- Step 1: Navigate to Douyin creator center ----
+  // Douyin can be slow (20s+ page load). Try navigate, catch timeout, proceed anyway.
   try {
     helpers.navigate("https://creator.douyin.com");
   } catch {
-    helpers.open("https://creator.douyin.com");
+    try {
+      helpers.open("https://creator.douyin.com");
+    } catch {
+      // Even open failed — page is loading slowly, but browser should be open
+    }
   }
-  await helpers.sleep(5000);
 
-  // ---- Step 2: Get home/overview snapshot ----
-  let homeText = "";
-  try {
-    homeText = helpers.snapshot();
-  } catch {
-    await helpers.sleep(3000);
-    try { homeText = helpers.snapshot(); } catch {}
-  }
+  // ---- Step 2: Wait for content to appear ----
+  const homeText = await waitForContent(
+    helpers,
+    ["粉丝", "播放", "作品", "创作者", "数据"],
+    20000,
+    3000
+  );
 
   if (homeText) {
     result.rawData.homeSnapshot = homeText.substring(0, 5000);
+    result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 3000);
 
     result.followers = findMetric(homeText, ["粉丝总量", "粉丝数", "粉丝", "关注者"]);
     result.totalViews = findMetric(homeText, ["总播放量", "播放量", "播放总量", "展现量"]);
@@ -58,13 +62,34 @@ async function collect(helpers) {
     result.contentCount = findMetric(homeText, ["作品数", "作品", "投稿数", "已发布"]);
   }
 
-  // ---- Step 3: Try data overview page for more metrics ----
+  // ---- Step 3: Try data overview page via sidebar click (SPA) ----
   try {
-    helpers.navigate("https://creator.douyin.com/creator-micro/data/overview");
-    await helpers.sleep(5000);
+    const snap = homeText || helpers.snapshot();
+    if (snap) {
+      let clicked = false;
+      for (const linkText of ["数据概览", "数据中心", "数据"]) {
+        if (helpers.clickByText(snap, linkText)) {
+          clicked = true;
+          break;
+        }
+      }
+      if (clicked) {
+        await helpers.sleep(4000);
+      } else {
+        // Fallback: direct URL navigation
+        try {
+          helpers.navigate("https://creator.douyin.com/creator-micro/data/overview");
+        } catch {
+          // Timeout is OK, page may have partially loaded
+        }
+        await helpers.sleep(4000);
+      }
+    }
+
     const dataText = helpers.snapshot();
     if (dataText) {
       result.rawData.dataSnapshot = dataText.substring(0, 5000);
+      result.rawData.dataFlatText = flattenSnapshot(dataText).substring(0, 3000);
 
       if (result.followers === 0) {
         result.followers = findMetric(dataText, ["粉丝总量", "粉丝数", "粉丝"]);

@@ -13,7 +13,7 @@
  *   - 作品数                  → contentCount
  */
 
-const { findMetric } = require("./bilibili-data");
+const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
 
 /**
  * Collect data from Kuaishou creator center.
@@ -34,21 +34,24 @@ async function collect(helpers) {
   try {
     helpers.navigate("https://cp.kuaishou.com");
   } catch {
-    helpers.open("https://cp.kuaishou.com");
+    try {
+      helpers.open("https://cp.kuaishou.com");
+    } catch {
+      // Timeout OK
+    }
   }
-  await helpers.sleep(5000);
 
-  // ---- Step 2: Get home page snapshot ----
-  let homeText = "";
-  try {
-    homeText = helpers.snapshot();
-  } catch {
-    await helpers.sleep(3000);
-    try { homeText = helpers.snapshot(); } catch {}
-  }
+  // ---- Step 2: Wait for content and get snapshot ----
+  let homeText = await waitForContent(
+    helpers,
+    ["粉丝", "播放", "作品", "创作者", "数据"],
+    20000,
+    3000
+  );
 
   if (homeText) {
     result.rawData.homeSnapshot = homeText.substring(0, 5000);
+    result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 3000);
 
     result.followers = findMetric(homeText, ["粉丝数", "粉丝总数", "粉丝", "关注者"]);
     result.totalViews = findMetric(homeText, ["播放量", "总播放量", "播放", "展现量", "曝光"]);

@@ -85,30 +85,66 @@ function flattenSnapshot(snapshot) {
  * Try to find a numeric value near a given label in the snapshot text.
  * First flattens the accessibility tree snapshot, then searches for
  * label-value pairs in both directions:
- *   1. Label followed by number: "粉丝数 1234", "总用户数 4"
- *   2. Number followed by label: "0 粉丝数", "1234 关注数" (xiaohongshu style)
+ *   1. Label followed by numbers: "粉丝总数 1 408" → takes max (408)
+ *   2. Number followed by label: "1234 关注数"
+ *
+ * IMPORTANT: Many dashboards show a daily change value BEFORE the total:
+ *   粉丝总数  +1   408     ← "1" is change, "408" is real total
+ *   播放量    43   6,272   ← "43" is change, "6,272" is real total
+ * We collect ALL consecutive numbers after the label and take the LARGEST.
  */
 function findMetric(snapshotText, labels) {
   // Flatten the accessibility tree to plain text for easier parsing
   const flat = flattenSnapshot(snapshotText);
 
   for (const label of labels) {
-    // Pattern 1: label followed by number — "粉丝数 1234"
-    const fwdRegex = new RegExp(label + "[\\s:：()（）人次篇个]*([\\d,.]+[万亿]?)", "i");
-    const fwdMatch = flat.match(fwdRegex);
-    if (fwdMatch) {
-      const val = parseChineseNumber(fwdMatch[1]);
-      if (val > 0) return val;
+    // Find the label position in the flat text
+    const idx = flat.indexOf(label);
+    if (idx === -1) continue;
+
+    // Get text after the label
+    const afterLabel = flat.substring(idx + label.length);
+
+    // Split into space-separated tokens and collect consecutive numeric tokens
+    // Stop at the first non-numeric token (which is likely the next label)
+    const tokens = afterLabel.trim().split(/\s+/);
+    const numbers = [];
+    for (const token of tokens) {
+      // Clean the token: remove commas, colons, parens, unit suffixes like 人/次/篇/个
+      const cleaned = token.replace(/[,:：()（）人次篇个+\-]/g, "").trim();
+      if (!cleaned) continue;
+      // Check if it's a valid number (possibly with 万/亿 suffix)
+      if (/^[\d.]+[万亿]?$/.test(cleaned)) {
+        numbers.push(parseChineseNumber(cleaned));
+      } else {
+        // Non-numeric token reached → stop (likely next metric label)
+        break;
+      }
     }
 
-    // Pattern 2: number followed by label — "0 粉丝数" or "1234 关注数"
-    const revRegex = new RegExp("([\\d,.]+[万亿]?)\\s+" + label, "i");
-    const revMatch = flat.match(revRegex);
-    if (revMatch) {
-      const val = parseChineseNumber(revMatch[1]);
-      if (val > 0) return val;
+    if (numbers.length > 0) {
+      // Take the LARGEST number — in "change total" patterns, total > change
+      const maxVal = Math.max(...numbers);
+      if (maxVal > 0) return maxVal;
     }
   }
+
+  // Reverse pattern: number BEFORE label — "1234 粉丝数"
+  for (const label of labels) {
+    const idx = flat.indexOf(label);
+    if (idx === -1 || idx === 0) continue;
+
+    const beforeLabel = flat.substring(0, idx).trimEnd();
+    const lastToken = beforeLabel.split(/\s+/).pop();
+    if (lastToken) {
+      const cleaned = lastToken.replace(/[,]/g, "");
+      if (/^[\d.]+[万亿]?$/.test(cleaned)) {
+        const val = parseChineseNumber(cleaned);
+        if (val > 0) return val;
+      }
+    }
+  }
+
   return 0;
 }
 
@@ -208,6 +244,7 @@ async function collect(helpers) {
 
   if (dataText) {
     result.rawData.overviewSnapshot = dataText.substring(0, 5000);
+    result.rawData.overviewFlatText = flattenSnapshot(dataText).substring(0, 3000);
 
     // Parse metrics from the data overview page
     result.followers = findMetric(dataText, ["粉丝数", "粉丝总数", "粉丝", "关注数", "涨粉"]);
@@ -225,6 +262,7 @@ async function collect(helpers) {
     const homeText = helpers.snapshot();
     if (homeText) {
       result.rawData.homeSnapshot = homeText.substring(0, 3000);
+      result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 2000);
       // Home page might show follower count and recent stats
       if (result.followers === 0) {
         result.followers = findMetric(homeText, ["粉丝", "关注者"]);
@@ -242,4 +280,4 @@ async function collect(helpers) {
   return result;
 }
 
-module.exports = { collect, parseChineseNumber, flattenSnapshot, findMetric };
+module.exports = { collect, parseChineseNumber, flattenSnapshot, findMetric, waitForContent };

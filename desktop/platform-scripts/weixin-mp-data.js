@@ -14,7 +14,7 @@
  * No navigation clicks needed — all key data is on the home page.
  */
 
-const { findMetric } = require("./bilibili-data");
+const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
 
 /**
  * Collect data from WeChat Official Account dashboard.
@@ -35,21 +35,24 @@ async function collect(helpers) {
   try {
     helpers.navigate("https://mp.weixin.qq.com");
   } catch {
-    helpers.open("https://mp.weixin.qq.com");
+    try {
+      helpers.open("https://mp.weixin.qq.com");
+    } catch {
+      // Timeout OK — browser should be open
+    }
   }
-  await helpers.sleep(5000);
 
-  // ---- Step 2: Get home page snapshot ----
-  let homeText = "";
-  try {
-    homeText = helpers.snapshot();
-  } catch {
-    await helpers.sleep(3000);
-    try { homeText = helpers.snapshot(); } catch {}
-  }
+  // ---- Step 2: Wait for content and get snapshot ----
+  let homeText = await waitForContent(
+    helpers,
+    ["公众号", "总用户", "原创", "阅读", "关注"],
+    20000,
+    3000
+  );
 
   if (homeText) {
     result.rawData.homeSnapshot = homeText.substring(0, 5000);
+    result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 3000);
 
     // Extract metrics from home page accessibility tree
     result.followers = findMetric(homeText, ["总用户数", "累计关注", "总关注"]);

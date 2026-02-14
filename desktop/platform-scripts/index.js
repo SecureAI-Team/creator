@@ -142,9 +142,9 @@ function createHelpers(ctx) {
   });
   return {
     /** Navigate to a URL in the managed browser */
-    navigate: (url, opts) => exec(`navigate ${escapeArg(url)}`, { timeout: 30000, ...opts }),
+    navigate: (url, opts) => exec(`navigate ${escapeArg(url)}`, { timeout: 60000, ...opts }),
     /** Open a URL (launches browser if not running) */
-    open: (url, opts) => exec(`open ${escapeArg(url)}`, { timeout: 30000, ...opts }),
+    open: (url, opts) => exec(`open ${escapeArg(url)}`, { timeout: 60000, ...opts }),
     /** Get the page snapshot (accessibility tree) */
     snapshot: (opts) => exec("snapshot", { timeout: 15000, ...opts }),
     /** Get interactive-only snapshot */
