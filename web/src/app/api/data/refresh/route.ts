@@ -9,10 +9,9 @@ import type { Prisma } from "@prisma/client";
  * Trigger data pull from platforms via the desktop bridge, then store results.
  * Body: { platform?: "bilibili", accountId?: "default" }
  *
- * Flow:
- *   1. Send `/data refresh <platform>` to bridge -> desktop -> OpenClaw scraper
- *   2. Desktop returns structured metrics JSON
- *   3. Server stores metrics in PlatformMetrics (daily snapshots, per account)
+ * Key design: Only collects from platforms that have PlatformConnection records.
+ * Iterates per-platform and saves data immediately after each one completes,
+ * so earlier results are not lost if later platforms timeout or fail.
  */
 export const POST = auth(async function POST(req) {
   if (!req.auth?.user?.id) {
@@ -21,42 +20,73 @@ export const POST = auth(async function POST(req) {
 
   const userId = req.auth.user.id;
   const body = await req.json().catch(() => ({}));
-  const platform = (body as Record<string, string>).platform;
+  const requestedPlatform = (body as Record<string, string>).platform;
   const accountId = (body as Record<string, string>).accountId || "default";
 
   try {
-    const command = platform
-      ? `/data refresh ${platform}`
-      : `/data refresh all`;
+    // Step 1: Look up which platforms the user has configured
+    const connections = await prisma.platformConnection.findMany({
+      where: { userId },
+      select: { platformKey: true, accountId: true, accountName: true },
+    });
 
-    // Data collection involves browser automation on multiple platforms,
-    // which can take 2-3 minutes. Use a 5-minute timeout.
-    const reply = await sendMessage(userId, command, 300_000);
-
-    // Try to parse the reply as structured data from the desktop collector
-    let collectedData: Record<string, PlatformData> | null = null;
-    try {
-      const parsed = JSON.parse(reply);
-      if (parsed.success && parsed.platforms) {
-        collectedData = parsed.platforms;
-      }
-    } catch {
-      // Reply was not JSON -- might be a plain text response
+    if (connections.length === 0) {
+      return NextResponse.json({
+        success: false,
+        message: "尚未连接任何平台，请先在设置中添加平台账号并登录",
+        storedPlatforms: [],
+      });
     }
 
-    // Store collected metrics in database
+    // Determine which platforms to collect
+    // Get unique platform keys from connections
+    const configuredPlatforms = [...new Set(connections.map((c) => c.platformKey))];
+    const targetPlatforms = requestedPlatform
+      ? [requestedPlatform].filter((p) => configuredPlatforms.includes(p))
+      : configuredPlatforms;
+
+    if (targetPlatforms.length === 0) {
+      return NextResponse.json({
+        success: false,
+        message: requestedPlatform
+          ? `平台 ${requestedPlatform} 尚未配置，请先在设置中添加`
+          : "没有已配置的平台",
+        storedPlatforms: [],
+      });
+    }
+
+    console.log(`[data/refresh] Collecting from ${targetPlatforms.length} platform(s): ${targetPlatforms.join(", ")}`);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const storedPlatforms: string[] = [];
-    if (collectedData) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+    const errors: string[] = [];
 
-      for (const [platformKey, data] of Object.entries(collectedData)) {
-        if (!data.success) continue;
+    // Step 2: Iterate per-platform, collect and save immediately
+    for (const platformKey of targetPlatforms) {
+      try {
+        console.log(`[data/refresh] Starting ${platformKey}...`);
+        const command = `/data refresh ${platformKey}`;
 
-        // Each platform result may specify its own accountId, else use request-level
-        const acctId = data.accountId || accountId;
+        // Per-platform timeout: 90 seconds (enough for one platform's browser automation)
+        const reply = await sendMessage(userId, command, 90_000);
 
+        // Parse the reply
+        let platformData: PlatformData | null = null;
         try {
+          const parsed = JSON.parse(reply);
+          if (parsed.success && parsed.platforms) {
+            platformData = parsed.platforms[platformKey] || null;
+          }
+        } catch {
+          // Reply was not JSON
+        }
+
+        if (platformData && platformData.success) {
+          const acctId = platformData.accountId || accountId;
+
+          // Save immediately to database
           await prisma.platformMetrics.upsert({
             where: {
               userId_platform_accountId_date: {
@@ -67,42 +97,59 @@ export const POST = auth(async function POST(req) {
               },
             },
             update: {
-              followers: data.followers || 0,
-              totalViews: data.totalViews || 0,
-              totalLikes: data.totalLikes || 0,
-              totalComments: data.totalComments || 0,
-              totalShares: data.totalShares || 0,
-              contentCount: data.contentCount || 0,
-              rawData: (data.rawData as Prisma.InputJsonValue) ?? undefined,
+              followers: platformData.followers || 0,
+              totalViews: platformData.totalViews || 0,
+              totalLikes: platformData.totalLikes || 0,
+              totalComments: platformData.totalComments || 0,
+              totalShares: platformData.totalShares || 0,
+              contentCount: platformData.contentCount || 0,
+              rawData: (platformData.rawData as Prisma.InputJsonValue) ?? undefined,
             },
             create: {
               userId,
               platform: platformKey,
               accountId: acctId,
               date: today,
-              followers: data.followers || 0,
-              totalViews: data.totalViews || 0,
-              totalLikes: data.totalLikes || 0,
-              totalComments: data.totalComments || 0,
-              totalShares: data.totalShares || 0,
-              contentCount: data.contentCount || 0,
-              rawData: (data.rawData as Prisma.InputJsonValue) ?? undefined,
+              followers: platformData.followers || 0,
+              totalViews: platformData.totalViews || 0,
+              totalLikes: platformData.totalLikes || 0,
+              totalComments: platformData.totalComments || 0,
+              totalShares: platformData.totalShares || 0,
+              contentCount: platformData.contentCount || 0,
+              rawData: (platformData.rawData as Prisma.InputJsonValue) ?? undefined,
             },
           });
-          storedPlatforms.push(acctId === "default" ? platformKey : `${platformKey}:${acctId}`);
-        } catch (err) {
-          console.error(`[data/refresh] Failed to store metrics for ${platformKey}:${acctId}:`, err);
+
+          const label = acctId === "default" ? platformKey : `${platformKey}:${acctId}`;
+          storedPlatforms.push(label);
+          console.log(`[data/refresh] Saved ${label} (followers=${platformData.followers}, views=${platformData.totalViews})`);
+        } else {
+          const errMsg = platformData?.error || "采集结果为空";
+          errors.push(`${platformKey}: ${errMsg}`);
+          console.log(`[data/refresh] ${platformKey} failed: ${errMsg}`);
         }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        errors.push(`${platformKey}: ${errMsg}`);
+        console.error(`[data/refresh] ${platformKey} error:`, errMsg);
+        // Continue to next platform — don't let one failure stop the rest
       }
     }
 
+    // Step 3: Build summary message
+    const parts: string[] = [];
+    if (storedPlatforms.length > 0) {
+      parts.push(`已更新: ${storedPlatforms.join(", ")}`);
+    }
+    if (errors.length > 0) {
+      parts.push(`失败: ${errors.join("; ")}`);
+    }
+
     return NextResponse.json({
-      success: true,
-      message: storedPlatforms.length > 0
-        ? `已更新 ${storedPlatforms.join(", ")} 的数据`
-        : reply,
+      success: storedPlatforms.length > 0,
+      message: parts.join("。") || "没有采集到数据",
       storedPlatforms,
-      rawReply: collectedData ? undefined : reply,
+      errors,
     });
   } catch (error) {
     console.error("[data/refresh] Error:", error);

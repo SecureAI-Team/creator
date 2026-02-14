@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   User, Globe, Key, MessageCircle, Bot, Shield, Loader2, Check, Copy, Monitor,
-  Plus, Trash2, Users,
+  Plus, Trash2, Users, LogIn, RefreshCw, Circle,
 } from "lucide-react";
 import { useSession, signIn } from "next-auth/react";
 
@@ -39,6 +39,7 @@ interface PlatformAccount {
   accountId: string;
   accountName: string | null;
   status: string;
+  lastChecked: string | null;
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -246,7 +247,20 @@ export default function SettingsPage() {
     setWxLoading(false);
   };
 
+  const [checkingAccount, setCheckingAccount] = useState<string | null>(null);
+  const [loggingInAccount, setLoggingInAccount] = useState<string | null>(null);
+
   /* Platform accounts */
+  const reloadAccounts = async () => {
+    try {
+      const acctRes = await fetch("/api/accounts");
+      if (acctRes.ok) {
+        const data = await acctRes.json();
+        setAccounts(data.accounts || []);
+      }
+    } catch { /* ignore */ }
+  };
+
   const handleAddAccount = async () => {
     if (!newAcctId.trim()) return;
     setAddingAccount(true);
@@ -261,11 +275,7 @@ export default function SettingsPage() {
         }),
       });
       if (res.ok) {
-        const acctRes = await fetch("/api/accounts");
-        if (acctRes.ok) {
-          const data = await acctRes.json();
-          setAccounts(data.accounts || []);
-        }
+        await reloadAccounts();
         setNewAcctId("");
         setNewAcctName("");
         setShowAddAccount(false);
@@ -284,6 +294,38 @@ export default function SettingsPage() {
       });
       setAccounts(accounts.filter((a) => !(a.platformKey === platformKey && a.accountId === accountId)));
     } catch { /* ignore */ }
+  };
+
+  const handleCheckAccountStatus = async (platformKey: string) => {
+    const key = platformKey;
+    setCheckingAccount(key);
+    try {
+      const res = await fetch(`/api/platforms/${platformKey}/check`);
+      if (res.ok) {
+        await reloadAccounts();
+      }
+    } catch { /* ignore */ }
+    setCheckingAccount(null);
+  };
+
+  const handleLoginAccount = async (platformKey: string) => {
+    setLoggingInAccount(platformKey);
+    try {
+      const res = await fetch("/api/platforms/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: platformKey }),
+      });
+      if (res.ok) {
+        // After login opens in browser, wait and check status
+        setTimeout(async () => {
+          await handleCheckAccountStatus(platformKey);
+          setLoggingInAccount(null);
+        }, 5000);
+        return;
+      }
+    } catch { /* ignore */ }
+    setLoggingInAccount(null);
   };
 
   /* Copy helper */
@@ -418,37 +460,79 @@ export default function SettingsPage() {
       </Section>
 
       {/* ---------- Platform Accounts ---------- */}
-      <Section icon={Users} iconBg="bg-purple-50" iconColor="text-purple-600" title="平台账号" description="管理多个平台的不同账号">
+      <Section icon={Users} iconBg="bg-purple-50" iconColor="text-purple-600" title="平台账号管理" description="管理已连接的平台和多个账号，数据采集仅对已配置的平台生效">
         <div className="space-y-3">
-          {/* Existing accounts */}
+          {/* Hint text */}
+          <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+            数据采集只会从下方列出的平台中进行。要添加平台，点击下方「添加平台/账号」；要登录，点击对应平台右侧的登录按钮。
+          </p>
+
+          {/* Existing accounts grouped by platform */}
           {accounts.length === 0 && (
-            <p className="text-sm text-gray-400">暂无已添加的账号，点击下方按钮添加</p>
+            <p className="text-sm text-gray-400 py-2">暂无已配置的平台，请点击下方按钮添加</p>
           )}
-          {accounts.map((acct) => (
-            <div key={acct.id} className="flex items-center justify-between py-2 px-3 rounded-xl bg-gray-50 border border-gray-100">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-medium text-gray-500 bg-white px-2 py-0.5 rounded-lg border border-gray-100">
-                  {PLATFORM_LABELS[acct.platformKey] || acct.platformKey}
-                </span>
-                <div>
-                  <span className="text-sm font-medium text-gray-900">
-                    {acct.accountName || acct.accountId}
+          {accounts.map((acct) => {
+            const statusColor = acct.status === "CONNECTED" ? "text-emerald-500" : acct.status === "EXPIRED" ? "text-amber-500" : "text-gray-300";
+            const statusLabel = acct.status === "CONNECTED" ? "已登录" : acct.status === "EXPIRED" ? "已过期" : "未登录";
+            const isChecking = checkingAccount === acct.platformKey;
+            const isLoggingIn = loggingInAccount === acct.platformKey;
+            return (
+              <div key={acct.id} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-gray-50 border border-gray-100">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-gray-500 bg-white px-2 py-0.5 rounded-lg border border-gray-100">
+                    {PLATFORM_LABELS[acct.platformKey] || acct.platformKey}
                   </span>
+                  <div>
+                    <span className="text-sm font-medium text-gray-900">
+                      {acct.accountName || acct.accountId}
+                    </span>
+                    {acct.accountId !== "default" && (
+                      <span className="text-xs text-gray-400 ml-2">ID: {acct.accountId}</span>
+                    )}
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Circle className={`h-2 w-2 fill-current ${statusColor}`} />
+                      <span className={`text-xs ${statusColor}`}>{statusLabel}</span>
+                      {acct.lastChecked && (
+                        <span className="text-xs text-gray-300 ml-1">
+                          {new Date(acct.lastChecked).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {/* Check status */}
+                  <button
+                    onClick={() => handleCheckAccountStatus(acct.platformKey)}
+                    disabled={isChecking}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                    title="检查登录状态"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? "animate-spin" : ""}`} />
+                  </button>
+                  {/* Login */}
+                  <button
+                    onClick={() => handleLoginAccount(acct.platformKey)}
+                    disabled={isLoggingIn}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 transition-colors"
+                    title="在浏览器中登录"
+                  >
+                    {isLoggingIn ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogIn className="h-3.5 w-3.5" />}
+                  </button>
+                  {/* Delete (non-default only) */}
                   {acct.accountId !== "default" && (
-                    <span className="text-xs text-gray-400 ml-2">ID: {acct.accountId}</span>
+                    <button
+                      onClick={() => handleDeleteAccount(acct.platformKey, acct.accountId)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      title="删除账号"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   )}
                 </div>
               </div>
-              {acct.accountId !== "default" && (
-                <button
-                  onClick={() => handleDeleteAccount(acct.platformKey, acct.accountId)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          ))}
+            );
+          })}
 
           {/* Add account form */}
           {showAddAccount ? (
@@ -466,13 +550,18 @@ export default function SettingsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 mb-1 block">账号 ID（英文标识，用于区分）</label>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  账号 ID（英文标识，用于区分同一平台的不同账号）
+                </label>
                 <Input
                   placeholder="例如: geo-radar, personal"
                   value={newAcctId}
                   onChange={(e) => setNewAcctId(e.target.value)}
                   className="rounded-xl border-gray-200 text-sm"
                 />
+                <p className="text-xs text-gray-400 mt-1">
+                  如果是首次添加该平台，账号 ID 会自动设为 default。添加第二个账号时需要设不同的 ID。
+                </p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-600 mb-1 block">显示名称</label>
@@ -511,7 +600,7 @@ export default function SettingsPage() {
               onClick={() => setShowAddAccount(true)}
             >
               <Plus className="h-3.5 w-3.5 mr-1.5" />
-              添加账号
+              添加平台/账号
             </Button>
           )}
         </div>

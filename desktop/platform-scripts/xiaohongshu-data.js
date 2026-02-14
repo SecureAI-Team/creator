@@ -58,31 +58,57 @@ async function collect(helpers) {
     result.contentCount = findMetric(homeText, ["笔记数", "作品数", "笔记", "已发布"]);
   }
 
-  // ---- Step 3: Try data page for more metrics ----
+  // ---- Step 3: Try data page via sidebar click (SPA) ----
+  // Click "数据看板" in the sidebar to navigate within the SPA
   try {
-    helpers.navigate("https://creator.xiaohongshu.com/creator/data");
-    await helpers.sleep(5000);
-    const dataText = helpers.snapshot();
-    if (dataText) {
-      result.rawData.dataSnapshot = dataText.substring(0, 5000);
+    const snap = homeText || helpers.snapshot();
+    if (snap) {
+      let clicked = false;
+      for (const linkText of ["数据看板", "数据中心", "数据分析"]) {
+        if (helpers.clickByText(snap, linkText)) {
+          clicked = true;
+          break;
+        }
+      }
+      if (clicked) {
+        await helpers.sleep(5000);
+        const dataText = helpers.snapshot();
+        if (dataText) {
+          result.rawData.dataSnapshot = dataText.substring(0, 5000);
 
-      if (result.followers === 0) {
-        result.followers = findMetric(dataText, ["粉丝数", "粉丝", "关注"]);
-      }
-      if (result.totalViews === 0) {
-        result.totalViews = findMetric(dataText, ["观看量", "阅读量", "曝光", "浏览"]);
-      }
-      if (result.totalLikes === 0) {
-        result.totalLikes = findMetric(dataText, ["点赞数", "赞藏", "获赞", "点赞"]);
-      }
-      if (result.totalComments === 0) {
-        result.totalComments = findMetric(dataText, ["评论数", "评论"]);
-      }
-      if (result.totalShares === 0) {
-        result.totalShares = findMetric(dataText, ["分享数", "转发", "分享"]);
-      }
-      if (result.contentCount === 0) {
-        result.contentCount = findMetric(dataText, ["笔记数", "作品数", "笔记"]);
+          if (result.followers === 0) {
+            result.followers = findMetric(dataText, ["粉丝数", "粉丝", "关注"]);
+          }
+          if (result.totalViews === 0) {
+            result.totalViews = findMetric(dataText, ["观看数", "观看量", "阅读量", "曝光数", "曝光", "浏览"]);
+          }
+          if (result.totalLikes === 0) {
+            result.totalLikes = findMetric(dataText, ["点赞数", "赞藏", "获赞", "点赞"]);
+          }
+          if (result.totalComments === 0) {
+            result.totalComments = findMetric(dataText, ["评论数", "评论"]);
+          }
+          if (result.totalShares === 0) {
+            result.totalShares = findMetric(dataText, ["分享数", "转发", "分享"]);
+          }
+          if (result.contentCount === 0) {
+            result.contentCount = findMetric(dataText, ["笔记数", "作品数", "笔记"]);
+          }
+        }
+      } else {
+        // Fallback to direct URL if sidebar click fails
+        helpers.navigate("https://creator.xiaohongshu.com/creator/data");
+        await helpers.sleep(5000);
+        const dataText = helpers.snapshot();
+        if (dataText) {
+          result.rawData.dataSnapshot = dataText.substring(0, 5000);
+          if (result.followers === 0) result.followers = findMetric(dataText, ["粉丝数", "粉丝"]);
+          if (result.totalViews === 0) result.totalViews = findMetric(dataText, ["观看数", "观看量", "曝光数", "曝光"]);
+          if (result.totalLikes === 0) result.totalLikes = findMetric(dataText, ["点赞数", "赞藏", "获赞"]);
+          if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论数", "评论"]);
+          if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享数", "转发"]);
+          if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["笔记数", "作品数"]);
+        }
       }
     }
   } catch {

@@ -84,18 +84,28 @@ function flattenSnapshot(snapshot) {
 /**
  * Try to find a numeric value near a given label in the snapshot text.
  * First flattens the accessibility tree snapshot, then searches for
- * label-value pairs.
+ * label-value pairs in both directions:
+ *   1. Label followed by number: "粉丝数 1234", "总用户数 4"
+ *   2. Number followed by label: "0 粉丝数", "1234 关注数" (xiaohongshu style)
  */
 function findMetric(snapshotText, labels) {
   // Flatten the accessibility tree to plain text for easier parsing
   const flat = flattenSnapshot(snapshotText);
 
   for (const label of labels) {
-    // Look for patterns like "粉丝数 1234" or "总用户数 4" or "原创内容 9"
-    const regex = new RegExp(label + "[\\s:：()（）人次篇个]*([\\d,.]+[万亿]?)", "i");
-    const match = flat.match(regex);
-    if (match) {
-      const val = parseChineseNumber(match[1]);
+    // Pattern 1: label followed by number — "粉丝数 1234"
+    const fwdRegex = new RegExp(label + "[\\s:：()（）人次篇个]*([\\d,.]+[万亿]?)", "i");
+    const fwdMatch = flat.match(fwdRegex);
+    if (fwdMatch) {
+      const val = parseChineseNumber(fwdMatch[1]);
+      if (val > 0) return val;
+    }
+
+    // Pattern 2: number followed by label — "0 粉丝数" or "1234 关注数"
+    const revRegex = new RegExp("([\\d,.]+[万亿]?)\\s+" + label, "i");
+    const revMatch = flat.match(revRegex);
+    if (revMatch) {
+      const val = parseChineseNumber(revMatch[1]);
       if (val > 0) return val;
     }
   }
@@ -160,6 +170,10 @@ async function collect(helpers) {
     const homeSnapshot = helpers.snapshot();
     if (homeSnapshot) {
       dataPageLoaded = helpers.clickByText(homeSnapshot, "数据中心");
+      if (dataPageLoaded) {
+        // Give the SPA time to route after click
+        await helpers.sleep(3000);
+      }
     }
   } catch {
     // snapshot or click failed

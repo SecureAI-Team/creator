@@ -58,28 +58,41 @@ async function collect(helpers) {
     result.contentCount = findMetric(homeText, ["内容数", "回答数", "文章数", "创作数", "已发布"]);
   }
 
-  // ---- Step 3: Try analytics page for more detailed metrics ----
+  // ---- Step 3: Try data page via sidebar click (SPA) ----
+  // Direct navigation to analytics pages often returns 404 on Zhihu.
+  // Instead, look for "内容分析" or "数据" links in the page and click them.
   try {
-    helpers.navigate("https://www.zhihu.com/creator/analytics/content");
-    await helpers.sleep(5000);
-    const dataText = helpers.snapshot();
-    if (dataText) {
-      result.rawData.analyticsSnapshot = dataText.substring(0, 5000);
+    const snap = helpers.snapshot();
+    if (snap) {
+      let clicked = false;
+      for (const linkText of ["内容分析", "数据分析", "创作数据", "数据"]) {
+        if (helpers.clickByText(snap, linkText)) {
+          clicked = true;
+          break;
+        }
+      }
+      if (clicked) {
+        await helpers.sleep(5000);
+        const dataText = helpers.snapshot();
+        if (dataText) {
+          result.rawData.analyticsSnapshot = dataText.substring(0, 5000);
 
-      if (result.followers === 0) {
-        result.followers = findMetric(dataText, ["关注者", "粉丝", "总关注"]);
-      }
-      if (result.totalViews === 0) {
-        result.totalViews = findMetric(dataText, ["阅读量", "总阅读", "浏览"]);
-      }
-      if (result.totalLikes === 0) {
-        result.totalLikes = findMetric(dataText, ["赞同", "获赞", "点赞"]);
-      }
-      if (result.totalComments === 0) {
-        result.totalComments = findMetric(dataText, ["评论数", "评论"]);
-      }
-      if (result.contentCount === 0) {
-        result.contentCount = findMetric(dataText, ["内容数", "回答数", "文章数"]);
+          if (result.followers === 0) {
+            result.followers = findMetric(dataText, ["关注者", "粉丝", "总关注"]);
+          }
+          if (result.totalViews === 0) {
+            result.totalViews = findMetric(dataText, ["阅读量", "总阅读", "浏览"]);
+          }
+          if (result.totalLikes === 0) {
+            result.totalLikes = findMetric(dataText, ["赞同", "获赞", "点赞"]);
+          }
+          if (result.totalComments === 0) {
+            result.totalComments = findMetric(dataText, ["评论数", "评论"]);
+          }
+          if (result.contentCount === 0) {
+            result.contentCount = findMetric(dataText, ["内容数", "回答数", "文章数"]);
+          }
+        }
       }
     }
   } catch {
