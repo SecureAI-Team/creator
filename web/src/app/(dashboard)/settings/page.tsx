@@ -296,11 +296,12 @@ export default function SettingsPage() {
     } catch { /* ignore */ }
   };
 
-  const handleCheckAccountStatus = async (platformKey: string) => {
-    const key = platformKey;
+  const handleCheckAccountStatus = async (platformKey: string, accountId: string) => {
+    const key = `${platformKey}:${accountId}`;
     setCheckingAccount(key);
     try {
-      const res = await fetch(`/api/platforms/${platformKey}/check`);
+      const params = new URLSearchParams({ accountId });
+      const res = await fetch(`/api/platforms/${platformKey}/check?${params.toString()}`);
       if (res.ok) {
         await reloadAccounts();
       }
@@ -308,18 +309,19 @@ export default function SettingsPage() {
     setCheckingAccount(null);
   };
 
-  const handleLoginAccount = async (platformKey: string) => {
-    setLoggingInAccount(platformKey);
+  const handleLoginAccount = async (platformKey: string, accountId: string) => {
+    const key = `${platformKey}:${accountId}`;
+    setLoggingInAccount(key);
     try {
       const res = await fetch("/api/platforms/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: platformKey }),
+        body: JSON.stringify({ platform: platformKey, accountId }),
       });
       if (res.ok) {
         // After login opens in browser, wait and check status
         setTimeout(async () => {
-          await handleCheckAccountStatus(platformKey);
+          await handleCheckAccountStatus(platformKey, accountId);
           setLoggingInAccount(null);
         }, 5000);
         return;
@@ -474,8 +476,9 @@ export default function SettingsPage() {
           {accounts.map((acct) => {
             const statusColor = acct.status === "CONNECTED" ? "text-emerald-500" : acct.status === "EXPIRED" ? "text-amber-500" : "text-gray-300";
             const statusLabel = acct.status === "CONNECTED" ? "已登录" : acct.status === "EXPIRED" ? "已过期" : "未登录";
-            const isChecking = checkingAccount === acct.platformKey;
-            const isLoggingIn = loggingInAccount === acct.platformKey;
+            const acctKey = `${acct.platformKey}:${acct.accountId}`;
+            const isChecking = checkingAccount === acctKey;
+            const isLoggingIn = loggingInAccount === acctKey;
             return (
               <div key={acct.id} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-gray-50 border border-gray-100">
                 <div className="flex items-center gap-3">
@@ -503,7 +506,7 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-1">
                   {/* Check status */}
                   <button
-                    onClick={() => handleCheckAccountStatus(acct.platformKey)}
+                    onClick={() => handleCheckAccountStatus(acct.platformKey, acct.accountId)}
                     disabled={isChecking}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-colors"
                     title="检查登录状态"
@@ -512,10 +515,10 @@ export default function SettingsPage() {
                   </button>
                   {/* Login */}
                   <button
-                    onClick={() => handleLoginAccount(acct.platformKey)}
+                    onClick={() => handleLoginAccount(acct.platformKey, acct.accountId)}
                     disabled={isLoggingIn}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 transition-colors"
-                    title="在浏览器中登录"
+                    title={acct.accountId !== "default" ? `在独立浏览器中登录 (profile: ${acct.platformKey}-${acct.accountId})` : "在浏览器中登录"}
                   >
                     {isLoggingIn ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogIn className="h-3.5 w-3.5" />}
                   </button>

@@ -394,13 +394,14 @@ function createBridge(serverUrl, options = {}) {
       const parts = message.split(" ");
       const action = parts[1]; // "refresh"
       const targetPlatform = parts[2] || "all"; // platform or "all"
-      bLog.info(`[${requestId}] Data command: action=${action}, platform=${targetPlatform}`);
+      const targetAccountId = parts[3] || "default"; // accountId (optional, default="default")
+      bLog.info(`[${requestId}] Data command: action=${action}, platform=${targetPlatform}, accountId=${targetAccountId}`);
       sendAck(requestId, "received");
       emit({ type: "ack", requestId, stage: "received", message });
 
       try {
         if (typeof options.onDataRefresh === "function") {
-          const result = await options.onDataRefresh(targetPlatform);
+          const result = await options.onDataRefresh(targetPlatform, targetAccountId);
           bLog.info(`[${requestId}] Data refresh result: ${JSON.stringify(result)}`);
           sendAck(requestId, "local_response");
           emit({ type: "response", requestId, ok: true, message, reply: JSON.stringify(result) });
@@ -418,10 +419,15 @@ function createBridge(serverUrl, options = {}) {
     }
 
     // ---- For /status commands: check cookies via Gateway RPC ----
+    // Format: "/status bilibili" or "/status bilibili geo-radar"
     if (isStatus) {
-      const platform = message.replace("/status ", "").trim().toLowerCase();
+      const statusParts = message.replace("/status ", "").trim().toLowerCase().split(/\s+/);
+      const platform = statusParts[0];
+      const accountId = statusParts[1] || "default";
+      const { getProfileName } = require("./platform-scripts");
+      const browserProfile = getProfileName(platform, accountId);
       const markers = PLATFORM_COOKIE_MARKERS[platform];
-      bLog.info(`[${requestId}] Status check for ${platform} (cookie-based via RPC)`);
+      bLog.info(`[${requestId}] Status check for ${platform} (account=${accountId}, profile=${browserProfile})`);
       sendAck(requestId, "received");
       emit({ type: "ack", requestId, stage: "received", message });
 
@@ -435,8 +441,8 @@ function createBridge(serverUrl, options = {}) {
             const domain = markers.domain.replace(/^\./, "");
             // Try multiple RPC methods since we don't know the exact API
             const rpcAttempts = [
-              { method: "browser.cookies", params: { profile: "openclaw", urls: [`https://${domain}`] } },
-              { method: "browser.request", params: { method: "GET", path: "/cookies", profile: "openclaw" } },
+              { method: "browser.cookies", params: { profile: browserProfile, urls: [`https://${domain}`] } },
+              { method: "browser.request", params: { method: "GET", path: "/cookies", profile: browserProfile } },
             ];
             for (const attempt of rpcAttempts) {
               try {
@@ -457,8 +463,8 @@ function createBridge(serverUrl, options = {}) {
 
           // Fallback to CLI if RPC returned no cookies
           if (cookies.length === 0 && typeof options.onCheckCookies === "function") {
-            bLog.info(`[${requestId}] Trying CLI cookie fallback...`);
-            cookies = await options.onCheckCookies();
+            bLog.info(`[${requestId}] Trying CLI cookie fallback (profile=${browserProfile})...`);
+            cookies = await options.onCheckCookies(null, browserProfile);
           }
 
           // Check if any marker cookie exists for this platform
@@ -492,20 +498,25 @@ function createBridge(serverUrl, options = {}) {
     }
 
     // ---- For /login commands: directly open the browser, bypass AI ----
+    // Format: "/login bilibili" or "/login bilibili geo-radar"
     if (isLogin) {
-      const platform = message.replace("/login ", "").trim().toLowerCase();
+      const loginParts = message.replace("/login ", "").trim().toLowerCase().split(/\s+/);
+      const platform = loginParts[0];
+      const accountId = loginParts[1] || "default";
       const loginUrl = PLATFORM_LOGIN_URLS[platform];
+      const { getProfileName } = require("./platform-scripts");
+      const browserProfile = getProfileName(platform, accountId);
 
       if (loginUrl) {
-        bLog.info(`[${requestId}] Login command: opening ${loginUrl} directly (bypassing AI)`);
+        bLog.info(`[${requestId}] Login command: opening ${loginUrl} (account=${accountId}, profile=${browserProfile})`);
         sendAck(requestId, "received");
         emit({ type: "ack", requestId, stage: "received", message });
 
         try {
-          // Use the onOpenUrl callback to open the browser directly
+          // Use the onOpenUrl callback to open the browser with the right profile
           if (typeof options.onOpenUrl === "function") {
-            await options.onOpenUrl(loginUrl);
-            bLog.info(`[${requestId}] Browser opened for ${platform}: ${loginUrl}`);
+            await options.onOpenUrl(loginUrl, browserProfile);
+            bLog.info(`[${requestId}] Browser opened for ${platform} (profile=${browserProfile}): ${loginUrl}`);
           } else {
             bLog.warn(`[${requestId}] No onOpenUrl callback, cannot open browser`);
           }
@@ -515,7 +526,8 @@ function createBridge(serverUrl, options = {}) {
           sendAck(requestId, "login_page_loaded");
           emit({ type: "ack", requestId, stage: "login_page_loaded", message });
 
-          const reply = `已在浏览器中打开 ${platform} 登录页面: ${loginUrl}`;
+          const acctLabel = accountId === "default" ? "" : ` (账号: ${accountId})`;
+          const reply = `已在浏览器中打开 ${platform}${acctLabel} 登录页面: ${loginUrl}`;
           emit({ type: "response", requestId, ok: true, message, reply });
           sendResponse(requestId, reply);
         } catch (err) {

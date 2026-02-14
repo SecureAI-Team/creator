@@ -38,14 +38,17 @@ export const POST = auth(async function POST(req) {
       });
     }
 
-    // Determine which platforms to collect
-    // Get unique platform keys from connections
-    const configuredPlatforms = [...new Set(connections.map((c) => c.platformKey))];
-    const targetPlatforms = requestedPlatform
-      ? [requestedPlatform].filter((p) => configuredPlatforms.includes(p))
-      : configuredPlatforms;
+    // Determine which accounts to collect from
+    // Filter by requested platform if specified, and by specific accountId if specified
+    let targetAccounts = connections;
+    if (requestedPlatform) {
+      targetAccounts = targetAccounts.filter((c) => c.platformKey === requestedPlatform);
+    }
+    if (accountId !== "default") {
+      targetAccounts = targetAccounts.filter((c) => c.accountId === accountId);
+    }
 
-    if (targetPlatforms.length === 0) {
+    if (targetAccounts.length === 0) {
       return NextResponse.json({
         success: false,
         message: requestedPlatform
@@ -55,7 +58,7 @@ export const POST = auth(async function POST(req) {
       });
     }
 
-    console.log(`[data/refresh] Collecting from ${targetPlatforms.length} platform(s): ${targetPlatforms.join(", ")}`);
+    console.log(`[data/refresh] Collecting from ${targetAccounts.length} account(s): ${targetAccounts.map((c) => `${c.platformKey}:${c.accountId}`).join(", ")}`);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -63,13 +66,19 @@ export const POST = auth(async function POST(req) {
     const storedPlatforms: string[] = [];
     const errors: string[] = [];
 
-    // Step 2: Iterate per-platform, collect and save immediately
-    for (const platformKey of targetPlatforms) {
-      try {
-        console.log(`[data/refresh] Starting ${platformKey}...`);
-        const command = `/data refresh ${platformKey}`;
+    // Step 2: Iterate per-account, collect and save immediately
+    // Each account may use a different browser profile for cookie isolation
+    for (const conn of targetAccounts) {
+      const platformKey = conn.platformKey;
+      const acctId = conn.accountId;
+      const label = acctId === "default" ? platformKey : `${platformKey}:${acctId}`;
 
-        // Per-platform timeout: 90 seconds (enough for one platform's browser automation)
+      try {
+        console.log(`[data/refresh] Starting ${label}...`);
+        // Include accountId in the command so the desktop uses the right browser profile
+        const command = `/data refresh ${platformKey} ${acctId}`;
+
+        // Per-account timeout: 90 seconds
         const reply = await sendMessage(userId, command, 90_000);
 
         // Parse the reply
@@ -84,8 +93,6 @@ export const POST = auth(async function POST(req) {
         }
 
         if (platformData && platformData.success) {
-          const acctId = platformData.accountId || accountId;
-
           // Save immediately to database
           await prisma.platformMetrics.upsert({
             where: {
@@ -120,19 +127,18 @@ export const POST = auth(async function POST(req) {
             },
           });
 
-          const label = acctId === "default" ? platformKey : `${platformKey}:${acctId}`;
           storedPlatforms.push(label);
           console.log(`[data/refresh] Saved ${label} (followers=${platformData.followers}, views=${platformData.totalViews})`);
         } else {
           const errMsg = platformData?.error || "采集结果为空";
-          errors.push(`${platformKey}: ${errMsg}`);
-          console.log(`[data/refresh] ${platformKey} failed: ${errMsg}`);
+          errors.push(`${label}: ${errMsg}`);
+          console.log(`[data/refresh] ${label} failed: ${errMsg}`);
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        errors.push(`${platformKey}: ${errMsg}`);
-        console.error(`[data/refresh] ${platformKey} error:`, errMsg);
-        // Continue to next platform — don't let one failure stop the rest
+        errors.push(`${label}: ${errMsg}`);
+        console.error(`[data/refresh] ${label} error:`, errMsg);
+        // Continue to next account — don't let one failure stop the rest
       }
     }
 

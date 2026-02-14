@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
 
-    const { platform, forceVnc } = await request.json();
+    const { platform, accountId, forceVnc } = await request.json();
     if (!platform) {
       return NextResponse.json({ error: "请指定平台" }, { status: 400 });
     }
@@ -35,7 +35,9 @@ export async function POST(request: NextRequest) {
       console.warn("[Login] ensureUserWorkspaceExists error:", e);
     }
 
-    const command = `/login ${platform}`;
+    // Include accountId in command so bridge opens the correct browser profile
+    const acctId = accountId || "default";
+    const command = acctId === "default" ? `/login ${platform}` : `/login ${platform} ${acctId}`;
     const dedupeKey = `${session.user.id}:${platform}`;
     const now = Date.now();
     const lastAt = loginInFlight.get(dedupeKey) || 0;

@@ -767,8 +767,8 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       }
       return await publishToPlatform(platform, payload, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir });
     },
-    onDataRefresh: async (platform) => {
-      log.info(`Data refresh for: ${platform}`);
+    onDataRefresh: async (platform, accountId = "default") => {
+      log.info(`Data refresh for: ${platform} (account=${accountId})`);
       const { collectPlatformData } = require("./platform-scripts");
       const sysNode = findSystemNode();
       const ocPath = getOpenClawPath();
@@ -776,10 +776,10 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       if (!sysNode || !fs.existsSync(ocPath)) {
         throw new Error("OpenClaw or system Node.js not available");
       }
-      return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir });
+      return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir }, accountId);
     },
-    onCheckCookies: async (domain) => {
-      log.info(`Checking browser cookies via OpenClaw CLI${domain ? ` for ${domain}` : ""}...`);
+    onCheckCookies: async (domain, browserProfile = "openclaw") => {
+      log.info(`Checking browser cookies via OpenClaw CLI (profile=${browserProfile})...`);
       const sysNode = findSystemNode();
       const ocPath = getOpenClawPath();
       if (!sysNode || !fs.existsSync(ocPath)) {
@@ -789,9 +789,7 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       try {
         const { execSync } = require("child_process");
         const wsDir = getWorkspaceDir();
-        // NOTE: --url is NOT a cookie domain filter — it overrides the gateway URL.
-        // Just use plain `browser cookies --json` which returns all cookies from the profile.
-        const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile openclaw --json`;
+        const cmd = `"${sysNode}" "${ocPath}" browser cookies --browser-profile ${browserProfile} --json`;
         log.info(`Exec: ${cmd}`);
         const apiKey = store.get("dashscopeApiKey") || process.env.DASHSCOPE_API_KEY || "";
         const result = execSync(cmd, {
@@ -803,7 +801,6 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
         });
         const output = result.toString().trim();
         log.info(`CLI cookies raw output (${output.length} chars): ${output.substring(0, 500)}`);
-        // Try to parse: might be JSON array or JSON object with cookies field
         let cookies = [];
         try {
           const parsed = JSON.parse(output);
@@ -811,15 +808,15 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
         } catch {
           log.warn("CLI cookies output is not valid JSON");
         }
-        log.info(`Retrieved ${cookies.length} cookies from OpenClaw browser`);
+        log.info(`Retrieved ${cookies.length} cookies from OpenClaw browser (profile=${browserProfile})`);
         return cookies;
       } catch (err) {
-        log.error(`Cookie check failed: ${err.message}`);
+        log.error(`Cookie check failed (profile=${browserProfile}): ${err.message}`);
         return [];
       }
     },
-    onOpenUrl: async (url) => {
-      log.info(`Opening URL in OpenClaw managed browser: ${url}`);
+    onOpenUrl: async (url, browserProfile = "openclaw") => {
+      log.info(`Opening URL in OpenClaw managed browser (profile=${browserProfile}): ${url}`);
       const sysNode = findSystemNode();
       if (!sysNode) {
         log.warn("System Node.js not found, falling back to default browser");
@@ -846,19 +843,19 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       // Try `browser navigate` first (reuses existing tab, no empty tab issue).
       // Falls back to `browser open` if navigate fails (browser not started yet).
       try {
-        const navCmd = `"${sysNode}" "${ocPath}" browser navigate "${url}" --browser-profile openclaw`;
+        const navCmd = `"${sysNode}" "${ocPath}" browser navigate "${url}" --browser-profile ${browserProfile}`;
         log.info(`Exec (navigate): ${navCmd}`);
         execSync(navCmd, execOpts);
-        log.info("OpenClaw browser navigated successfully");
+        log.info(`OpenClaw browser navigated successfully (profile=${browserProfile})`);
       } catch {
         // Navigate failed — browser may not be running. Use `open` which starts it.
         try {
-          const openCmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile openclaw`;
+          const openCmd = `"${sysNode}" "${ocPath}" browser open "${url}" --browser-profile ${browserProfile}`;
           log.info(`Exec (open): ${openCmd}`);
           execSync(openCmd, execOpts);
-          log.info("OpenClaw browser opened successfully");
+          log.info(`OpenClaw browser opened successfully (profile=${browserProfile})`);
         } catch (err) {
-          log.error(`OpenClaw browser open failed: ${err.message}, falling back to default browser`);
+          log.error(`OpenClaw browser open failed (profile=${browserProfile}): ${err.message}, falling back to default browser`);
           await shell.openExternal(url);
         }
       }

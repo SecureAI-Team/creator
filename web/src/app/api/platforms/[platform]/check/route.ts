@@ -14,6 +14,8 @@ export const GET = auth(async function GET(req) {
 
   const userId = req.auth.user.id;
   const platform = req.nextUrl.pathname.split("/").at(-2) ?? "";
+  // accountId can be passed as a query parameter
+  const accountId = req.nextUrl.searchParams.get("accountId") || "default";
 
   if (!platform) {
     return NextResponse.json(
@@ -28,13 +30,17 @@ export const GET = auth(async function GET(req) {
 
     // Get stored platform connection from DB
     const connection = await prisma.platformConnection.findUnique({
-      where: { userId_platformKey_accountId: { userId, platformKey: platform, accountId: "default" } },
+      where: { userId_platformKey_accountId: { userId, platformKey: platform, accountId } },
     });
 
     // Always try live cookie check via bridge/OpenClaw when instance is available
     if (instanceStatus.status === "running") {
       try {
-        const reply = await sendMessage(userId, `/status ${platform}`);
+        // Include accountId in command so bridge checks the right browser profile
+        const statusCmd = accountId === "default"
+          ? `/status ${platform}`
+          : `/status ${platform} ${accountId}`;
+        const reply = await sendMessage(userId, statusCmd);
         const isConnected =
           reply.toLowerCase().includes("logged in") ||
           reply.toLowerCase().includes("已登录") ||
@@ -44,12 +50,12 @@ export const GET = auth(async function GET(req) {
 
         // Upsert: create record if it doesn't exist, update if it does
         await prisma.platformConnection.upsert({
-          where: { userId_platformKey_accountId: { userId, platformKey: platform, accountId: "default" } },
+          where: { userId_platformKey_accountId: { userId, platformKey: platform, accountId } },
           update: { status: newStatus, lastChecked: new Date() },
           create: {
             userId,
             platformKey: platform,
-            accountId: "default",
+            accountId,
             status: newStatus,
             lastChecked: new Date(),
           },
@@ -57,6 +63,7 @@ export const GET = auth(async function GET(req) {
 
         return NextResponse.json({
           platform,
+          accountId,
           status: newStatus,
           lastChecked: new Date(),
           message: reply,
@@ -69,6 +76,7 @@ export const GET = auth(async function GET(req) {
     // Fall back to stored status
     return NextResponse.json({
       platform,
+      accountId,
       status: connection?.status ?? "DISCONNECTED",
       lastChecked: connection?.lastChecked ?? null,
     });

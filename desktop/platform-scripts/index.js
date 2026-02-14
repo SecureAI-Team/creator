@@ -19,6 +19,29 @@
 
 const { execSync } = require("child_process");
 
+// ---- Profile Management ----
+
+/**
+ * Compute the OpenClaw browser profile name for a platform account.
+ *
+ * - Default accounts (accountId="default" or unset) all share the "openclaw"
+ *   profile. Cookies from different platforms don't conflict since they're on
+ *   different domains. This maintains backward compatibility.
+ * - Non-default accounts (e.g. a second WeChat MP) get their own isolated
+ *   profile: "openclaw-{platformKey}-{accountId}". This ensures separate
+ *   cookie jars for different accounts on the same platform.
+ *
+ * @param {string} platformKey - e.g. "bilibili", "weixin-mp"
+ * @param {string} accountId  - e.g. "default", "geo-radar"
+ * @returns {string} Profile name for --browser-profile flag
+ */
+function getProfileName(platformKey, accountId) {
+  if (!accountId || accountId === "default") {
+    return "openclaw";
+  }
+  return `openclaw-${platformKey}-${accountId}`;
+}
+
 // ---- Helpers ----
 
 /**
@@ -107,9 +130,16 @@ function findRefByText(snapshot, text) {
 
 /**
  * Create a bound helper object with systemNode/openclawPath pre-filled.
+ * @param {object} ctx - { systemNode, openclawPath, workspaceDir, profile? }
+ *   profile: OpenClaw browser profile name (default: "openclaw")
  */
 function createHelpers(ctx) {
-  const exec = (command, opts) => execBrowser(ctx.systemNode, ctx.openclawPath, command, { workspaceDir: ctx.workspaceDir, ...opts });
+  const defaultProfile = ctx.profile || "openclaw";
+  const exec = (command, opts) => execBrowser(ctx.systemNode, ctx.openclawPath, command, {
+    workspaceDir: ctx.workspaceDir,
+    profile: defaultProfile,
+    ...opts,
+  });
   return {
     /** Navigate to a URL in the managed browser */
     navigate: (url, opts) => exec(`navigate ${escapeArg(url)}`, { timeout: 30000, ...opts }),
@@ -231,23 +261,26 @@ function isPlatformLoggedIn(cookies, platform) {
 }
 
 /**
- * Collect analytics data from one or more platforms.
+ * Collect analytics data from a single platform+account.
  *
- * Before running each collector, checks cookies to see if the user is
- * logged in. Skips unlogged platforms to save time (~20-30s each).
+ * Uses the correct browser profile for the given accountId so that
+ * each account's cookies are isolated.
  *
- * @param {string} platform - "all" or specific platform key
- * @param {object} ctx - { systemNode, openclawPath }
+ * @param {string} platform - specific platform key (e.g. "bilibili")
+ * @param {object} ctx - { systemNode, openclawPath, workspaceDir }
+ * @param {string} [accountId="default"] - account identifier
  * @returns {Promise<{ success: boolean, platforms: Record<string, object> }>}
  */
-async function collectPlatformData(platform, ctx) {
-  const helpers = createHelpers(ctx);
+async function collectPlatformData(platform, ctx, accountId = "default") {
+  // Determine the browser profile for this account
+  const profile = getProfileName(platform, accountId);
+  const helpers = createHelpers({ ...ctx, profile });
 
   const targets = platform === "all"
     ? Object.keys(dataCollectors)
     : [platform];
 
-  // Fetch cookies once for login check (instead of per-platform)
+  // Fetch cookies for the specific profile to check login state
   let allCookies = [];
   try {
     allCookies = helpers.cookies();
@@ -272,7 +305,8 @@ async function collectPlatformData(platform, ctx) {
 
     try {
       const data = await collector(helpers);
-      results[p] = { success: true, ...data };
+      // Tag result with accountId so the server knows which account it belongs to
+      results[p] = { success: true, accountId, ...data };
     } catch (err) {
       results[p] = { success: false, error: err.message };
     }
@@ -286,6 +320,7 @@ module.exports = {
   sleep,
   escapeArg,
   findRefByText,
+  getProfileName,
   createHelpers,
   publishToPlatform,
   collectPlatformData,
