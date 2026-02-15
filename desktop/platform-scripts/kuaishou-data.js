@@ -1,8 +1,5 @@
 /**
  * Kuaishou (快手) creator dashboard data collector.
- *
- * Navigates to https://cp.kuaishou.com and extracts metrics
- * from the creator center dashboard.
  */
 
 const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
@@ -17,20 +14,14 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
-  // ---- Step 1: Navigate to Kuaishou creator center ----
   try {
     helpers.navigate("https://cp.kuaishou.com");
-  } catch {
-    try {
-      helpers.open("https://cp.kuaishou.com");
-    } catch {}
-  }
+  } catch {}
 
-  // ---- Step 2: Wait for content ----
   let homeText = await waitForContent(
     helpers,
     ["粉丝", "播放", "作品", "创作者", "数据"],
-    25000,
+    60000,
     3000
   );
 
@@ -43,24 +34,25 @@ async function collect(helpers) {
     result.contentCount = findMetric(homeText, ["作品数", "视频数", "投稿数", "已发布"]);
   }
 
-  // ---- Step 3: Try data overview page ----
+  // ---- Try data overview page ----
   try {
     helpers.navigate("https://cp.kuaishou.com/article/publish/general-data");
-    const dataText = await waitForContent(
-      helpers,
-      ["粉丝", "播放", "数据"],
-      15000,
-      3000
-    );
-    if (dataText) {
-      if (result.followers === 0) result.followers = findMetric(dataText, ["粉丝数", "粉丝", "关注"]);
-      if (result.totalViews === 0) result.totalViews = findMetric(dataText, ["播放量", "总播放", "播放"]);
-      if (result.totalLikes === 0) result.totalLikes = findMetric(dataText, ["点赞数", "获赞", "点赞"]);
-      if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论数", "评论"]);
-      if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享数", "分享"]);
-      if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["作品数", "视频数"]);
-    }
   } catch {}
+
+  const dataText = await waitForContent(
+    helpers,
+    ["粉丝", "播放", "数据"],
+    30000,
+    3000
+  );
+  if (dataText) {
+    if (result.followers === 0) result.followers = findMetric(dataText, ["粉丝数", "粉丝", "关注"]);
+    if (result.totalViews === 0) result.totalViews = findMetric(dataText, ["播放量", "总播放", "播放"]);
+    if (result.totalLikes === 0) result.totalLikes = findMetric(dataText, ["点赞数", "获赞", "点赞"]);
+    if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论数", "评论"]);
+    if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享数", "分享"]);
+    if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["作品数", "视频数"]);
+  }
 
   return result;
 }

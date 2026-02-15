@@ -2,20 +2,17 @@
  * Douyin (抖音) creator dashboard data collector.
  *
  * Strategy:
- *   1. Navigate explicitly to /creator-micro/home (SPA may redirect to last-visited page
- *      if we only go to creator.douyin.com, so we MUST use the full home URL).
- *   2. Click "首页" in the sidebar to ensure we're on the homepage.
- *   3. Parse homepage metrics (粉丝, 获赞, 播放).
+ *   1. Navigate to /creator-micro/home (explicit home path to avoid SPA
+ *      routing to last-visited page).
+ *   2. Even if navigate CLI times out (gateway has internal 20s timeout),
+ *      the browser continues loading in the background. DON'T fallback to
+ *      `open` — that creates a new tab and resets navigation progress.
+ *   3. Poll with waitForContent (60s) until page content appears.
  *   4. Navigate to /creator-micro/data/overview for detailed data.
- *   5. Parse data overview metrics.
  */
 
 const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
 
-/**
- * Collect data from Douyin creator dashboard.
- * @param {object} helpers - { navigate, open, snapshot, click, screenshot, sleep, ... }
- */
 async function collect(helpers) {
   const result = {
     followers: 0,
@@ -26,24 +23,20 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
-  // ---- Step 1: Navigate to explicit home URL ----
-  // IMPORTANT: Don't use just creator.douyin.com — the SPA remembers the last
-  // visited sub-page and may land on 关注管理, 内容管理, etc.
+  // ---- Step 1: Start navigation to home ----
+  // navigate may throw (20s gateway timeout), but the browser keeps loading.
+  // Do NOT use helpers.open() as fallback — it creates a new tab and resets progress.
   try {
     helpers.navigate("https://creator.douyin.com/creator-micro/home");
   } catch {
-    try {
-      helpers.open("https://creator.douyin.com/creator-micro/home");
-    } catch {
-      // Page loading slowly, proceed
-    }
+    // Timeout OK — browser is still loading in background
   }
 
-  // ---- Step 2: Wait for homepage content ----
+  // ---- Step 2: Wait for homepage content (up to 60s) ----
   const homeText = await waitForContent(
     helpers,
-    ["粉丝", "播放", "获赞", "作品数"],
-    25000,
+    ["粉丝", "获赞", "播放", "作品数", "创作者"],
+    60000,
     3000
   );
 
@@ -56,19 +49,17 @@ async function collect(helpers) {
     result.contentCount = findMetric(homeText, ["作品数", "作品", "投稿数", "已发布"]);
   }
 
-  // ---- Step 3: Navigate directly to data overview page ----
-  // Don't rely on sidebar click — the SPA sidebar may expand sub-menus instead
-  // of navigating. Use the direct URL instead.
+  // ---- Step 3: Navigate to data overview for detailed stats ----
   try {
     helpers.navigate("https://creator.douyin.com/creator-micro/data/overview");
   } catch {
-    // Timeout OK, page may still load
+    // Timeout OK
   }
 
   const dataText = await waitForContent(
     helpers,
-    ["粉丝总量", "粉丝数", "播放量", "作品点赞", "涨粉"],
-    20000,
+    ["粉丝总量", "粉丝数", "播放量", "作品点赞", "涨粉", "净增"],
+    45000,
     3000
   );
 

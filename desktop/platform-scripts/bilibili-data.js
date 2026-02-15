@@ -2,18 +2,15 @@
  * Bilibili creator dashboard data collector.
  *
  * Strategy:
- *   1. Navigate directly to /platform/data/overview (the data page).
- *      Previously we went to /platform/home and clicked "数据中心",
- *      but SPA may route to last-visited page and sidebar clicks may
- *      expand sub-menus instead of navigating.
- *   2. Wait for data content keywords.
- *   3. Parse metrics.
- *   4. Supplement from /platform/home if needed (follower count).
+ *   1. Navigate directly to /platform/data/overview.
+ *   2. Even if navigate CLI times out (gateway 20s internal timeout),
+ *      the browser continues loading. Don't fallback to open().
+ *   3. Poll with waitForContent (60s) until data appears.
+ *   4. Supplement from /platform/home if needed.
  */
 
 /**
- * Extract a numeric value following a Chinese label from snapshot text.
- * Handles formats like "12.5万" (= 125000), "1,234", "1234".
+ * Extract a numeric value. Handles "12.5万" (= 125000), "1,234", "1234".
  */
 function parseChineseNumber(text) {
   if (!text) return 0;
@@ -71,7 +68,6 @@ function findMetric(snapshot, labels) {
   if (!flat) return 0;
 
   for (const label of labels) {
-    // Forward pattern: label followed by numbers
     const forwardRegex = new RegExp(label + "\\s*[：:]?\\s*([\\d,.]+[万亿]?)", "g");
     let match;
     let maxVal = -1;
@@ -83,7 +79,6 @@ function findMetric(snapshot, labels) {
     }
     if (foundAny) return Math.max(0, maxVal);
 
-    // Also try: label then whitespace then number (tokens separated by space)
     const tokenRegex = new RegExp(label + "\\s+(\\d[\\d,.]*[万亿]?)", "g");
     while ((match = tokenRegex.exec(flat)) !== null) {
       foundAny = true;
@@ -140,21 +135,19 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
-  // ---- Step 1: Navigate directly to data overview page ----
-  // Don't go to /platform/home first — SPA may route to last-visited sub-page.
+  // ---- Step 1: Navigate to data overview ----
+  // Don't fallback to open() — it creates a new tab and resets loading progress.
   try {
     helpers.navigate("https://member.bilibili.com/platform/data/overview");
   } catch {
-    try {
-      helpers.open("https://member.bilibili.com/platform/data/overview");
-    } catch {}
+    // Timeout OK — browser continues loading in background
   }
 
-  // ---- Step 2: Wait for data content ----
+  // ---- Step 2: Wait for data content (up to 60s) ----
   let dataText = await waitForContent(
     helpers,
     ["粉丝总数", "粉丝数", "播放量", "点赞", "互动", "涨粉"],
-    25000,
+    60000,
     3000
   );
 
@@ -171,16 +164,18 @@ async function collect(helpers) {
   if (result.followers === 0) {
     try {
       helpers.navigate("https://member.bilibili.com/platform/home");
-      await helpers.sleep(4000);
-      const homeText = helpers.snapshot();
-      if (homeText) {
-        result.followers = findMetric(homeText, ["粉丝", "关注者"]);
-        if (result.contentCount === 0) {
-          result.contentCount = findMetric(homeText, ["投稿", "稿件", "视频"]);
-        }
+    } catch {}
+    const homeText = await waitForContent(
+      helpers,
+      ["粉丝", "播放", "投稿"],
+      30000,
+      3000
+    );
+    if (homeText) {
+      result.followers = findMetric(homeText, ["粉丝", "关注者"]);
+      if (result.contentCount === 0) {
+        result.contentCount = findMetric(homeText, ["投稿", "稿件", "视频"]);
       }
-    } catch {
-      // Non-critical
     }
   }
 

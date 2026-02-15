@@ -1,8 +1,5 @@
 /**
  * Zhihu (知乎) creator dashboard data collector.
- *
- * Navigates to https://www.zhihu.com/creator and extracts metrics
- * from the creator center dashboard.
  */
 
 const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
@@ -17,20 +14,14 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
-  // ---- Step 1: Navigate to Zhihu creator center ----
   try {
     helpers.navigate("https://www.zhihu.com/creator");
-  } catch {
-    try {
-      helpers.open("https://www.zhihu.com/creator");
-    } catch {}
-  }
+  } catch {}
 
-  // ---- Step 2: Wait for content ----
   let homeText = await waitForContent(
     helpers,
     ["创作者", "关注者", "阅读", "赞同", "回答"],
-    25000,
+    60000,
     3000
   );
 
@@ -43,7 +34,7 @@ async function collect(helpers) {
     result.contentCount = findMetric(homeText, ["内容数", "回答数", "文章数", "创作数"]);
   }
 
-  // ---- Step 3: Try data page via sidebar click ----
+  // ---- Try data page via sidebar click ----
   try {
     const snap = helpers.snapshot();
     if (snap) {
