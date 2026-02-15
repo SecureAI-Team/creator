@@ -791,7 +791,8 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
       await prev; // wait for previous refresh on this profile to finish
       log.info(`Data refresh lock acquired for ${platform} (profile=${profile})`);
       try {
-        return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir }, accountId);
+        const collectorLog = logger.createTaggedLogger("Collector");
+        return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir, log: collectorLog }, accountId);
       } finally {
         releaseLock();
       }

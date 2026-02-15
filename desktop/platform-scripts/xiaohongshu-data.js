@@ -11,6 +11,7 @@
 const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
 
 async function collect(helpers) {
+  const log = helpers.log;
   const result = {
     followers: 0,
     totalViews: 0,
@@ -20,7 +21,7 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
-  console.error("[collector:xiaohongshu] Step 1: navigate to home");
+  log.info("xiaohongshu: Step 1 — navigate to home");
 
   // ---- Step 1: Navigate to home ----
   try {
@@ -39,21 +40,17 @@ async function collect(helpers) {
 
   if (homeText) {
     const flat = flattenSnapshot(homeText);
-    console.error(`[collector:xiaohongshu] home flat (first 500): ${flat.substring(0, 500)}`);
+    log.info(`xiaohongshu: home flat (${flat.length} chars): ${flat.substring(0, 500)}`);
     // Use "粉丝数" (specific label on home page) — NOT generic "粉丝"
-    // which could match chart labels on the data page
-    result.followers = findMetric(homeText, ["粉丝数", "关注者"]);
-    result.totalLikes = findMetric(homeText, ["获赞与收藏", "赞藏量", "获赞", "点赞数"]);
-    result.totalComments = findMetric(homeText, ["评论数", "评论量", "评论"]);
-    result.totalShares = findMetric(homeText, ["分享数", "转发数", "分享"]);
-    result.contentCount = findMetric(homeText, ["笔记数", "作品数", "笔记", "已发布"]);
+    result.followers = findMetric(homeText, ["粉丝数", "关注者"], log);
+    result.totalLikes = findMetric(homeText, ["获赞与收藏", "赞藏量", "获赞", "点赞数"], log);
+    result.totalComments = findMetric(homeText, ["评论数", "评论量", "评论"], log);
+    result.totalShares = findMetric(homeText, ["分享数", "转发数", "分享"], log);
+    result.contentCount = findMetric(homeText, ["笔记数", "作品数", "笔记", "已发布"], log);
   }
 
   // ---- Step 2: Navigate to data dashboard ----
-  // Data page has engagement metrics: 曝光数, 观看数, 互动量 etc.
-  // DO NOT use data page for followers — numbers near "粉丝" on data page
-  // are period-based (涨粉/粉丝增长) and will be misleading.
-  console.error("[collector:xiaohongshu] Step 2: navigate to data");
+  log.info("xiaohongshu: Step 2 — navigate to data");
   try {
     helpers.navigate("https://creator.xiaohongshu.com/creator/data");
   } catch {}
@@ -69,16 +66,16 @@ async function collect(helpers) {
 
   if (dataText) {
     const flat = flattenSnapshot(dataText);
-    console.error(`[collector:xiaohongshu] data flat (first 500): ${flat.substring(0, 500)}`);
+    log.info(`xiaohongshu: data flat (${flat.length} chars): ${flat.substring(0, 500)}`);
     // Only get engagement metrics from data page, NOT followers
-    if (result.totalViews === 0) result.totalViews = findMetric(dataText, ["观看数", "观看量", "曝光数", "曝光量", "浏览量", "阅读量"]);
-    if (result.totalLikes === 0) result.totalLikes = findMetric(dataText, ["点赞数", "赞藏", "获赞"]);
-    if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论数", "评论"]);
-    if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享数", "转发"]);
-    if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["笔记数", "作品数"]);
+    if (result.totalViews === 0) result.totalViews = findMetric(dataText, ["观看数", "观看量", "曝光数", "曝光量", "浏览量", "阅读量"], log);
+    if (result.totalLikes === 0) result.totalLikes = findMetric(dataText, ["点赞数", "赞藏", "获赞"], log);
+    if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论数", "评论"], log);
+    if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享数", "转发"], log);
+    if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["笔记数", "作品数"], log);
   }
 
-  console.error(`[collector:xiaohongshu] result: ${JSON.stringify(result)}`);
+  log.info(`xiaohongshu: result = ${JSON.stringify(result)}`);
   return result;
 }
 

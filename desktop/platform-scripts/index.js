@@ -146,7 +146,16 @@ function createHelpers(ctx) {
     profile: defaultProfile,
     ...opts,
   });
+  // Logger: prefer ctx.log (desktop logger), fallback to console.error
+  const log = ctx.log || {
+    info: (...a) => console.error("[collector]", ...a),
+    debug: (...a) => console.error("[collector]", ...a),
+    warn: (...a) => console.error("[collector]", ...a),
+    error: (...a) => console.error("[collector]", ...a),
+  };
   return {
+    /** Logger — writes to desktop log file when available */
+    log,
     /** Navigate to a URL in the managed browser */
     navigate: (url, opts) => exec(`navigate ${escapeArg(url)}`, { timeout: 70000, openclawTimeout: OPENCLAW_NAVIGATION_TIMEOUT_MS, ...opts }),
     /** Open a URL (launches browser if not running) */

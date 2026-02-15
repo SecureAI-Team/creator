@@ -62,8 +62,11 @@ function flattenSnapshot(snapshot) {
 /**
  * Try to find a numeric value near a given label in the snapshot text.
  * Returns the FIRST match (not max), which is usually the primary display value.
+ * @param {string} snapshot - accessibility tree text
+ * @param {string[]} labels - ordered list of labels to try (most specific first)
+ * @param {object} [log] - optional logger ({ info, debug }); if omitted, no debug output
  */
-function findMetric(snapshot, labels) {
+function findMetric(snapshot, labels, log) {
   if (!snapshot) return 0;
   const flat = flattenSnapshot(snapshot);
   if (!flat) return 0;
@@ -74,7 +77,7 @@ function findMetric(snapshot, labels) {
     const match = forwardRegex.exec(flat);
     if (match) {
       const val = parseChineseNumber(match[1]);
-      console.error(`[collector] findMetric "${label}" → ${match[0]} = ${val}`);
+      if (log) log.debug(`findMetric "${label}" → ${match[0]} = ${val}`);
       return val;
     }
 
@@ -83,7 +86,7 @@ function findMetric(snapshot, labels) {
     const tmatch = tokenRegex.exec(flat);
     if (tmatch) {
       const val = parseChineseNumber(tmatch[1]);
-      console.error(`[collector] findMetric "${label}" (token) → ${tmatch[0]} = ${val}`);
+      if (log) log.debug(`findMetric "${label}" (token) → ${tmatch[0]} = ${val}`);
       return val;
     }
   }
@@ -95,7 +98,7 @@ function findMetric(snapshot, labels) {
     if (match) {
       const val = parseChineseNumber(match[1]);
       if (val > 0) {
-        console.error(`[collector] findMetric "${label}" (reverse) → ${match[0]} = ${val}`);
+        if (log) log.debug(`findMetric "${label}" (reverse) → ${match[0]} = ${val}`);
         return val;
       }
     }
@@ -106,9 +109,10 @@ function findMetric(snapshot, labels) {
 
 /**
  * Poll the page snapshot until one of the keywords appears, or timeout.
- * Logs progress to stderr so it appears in desktop app logs.
+ * Logs progress via helpers.log (desktop log file).
  */
 async function waitForContent(helpers, keywords, maxWaitMs = 15000, intervalMs = 2000) {
+  const log = helpers.log;
   const start = Date.now();
   let lastSnapshot = "";
   let polls = 0;
@@ -120,7 +124,7 @@ async function waitForContent(helpers, keywords, maxWaitMs = 15000, intervalMs =
       const matched = keywords.find((kw) => flat.includes(kw));
       if (matched) {
         const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-        console.error(`[collector] waitForContent matched "${matched}" after ${elapsed}s (${polls} polls, flat=${flat.length} chars)`);
+        if (log) log.info(`waitForContent matched "${matched}" after ${elapsed}s (${polls} polls, flat=${flat.length} chars)`);
         return lastSnapshot;
       }
     } catch {
@@ -130,7 +134,7 @@ async function waitForContent(helpers, keywords, maxWaitMs = 15000, intervalMs =
   }
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   const flatLen = flattenSnapshot(lastSnapshot).length;
-  console.error(`[collector] waitForContent timeout after ${elapsed}s (${polls} polls, flat=${flatLen} chars, keywords=[${keywords.join(",")}])`);
+  if (log) log.warn(`waitForContent timeout after ${elapsed}s (${polls} polls, flat=${flatLen} chars, keywords=[${keywords.join(",")}])`);
   return lastSnapshot;
 }
 
@@ -142,6 +146,7 @@ async function waitForContent(helpers, keywords, maxWaitMs = 15000, intervalMs =
  * Strategy: start with HOME page (followers + content count), then DATA page.
  */
 async function collect(helpers) {
+  const log = helpers.log;
   const result = {
     followers: 0,
     totalViews: 0,
@@ -151,7 +156,7 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
-  console.error("[collector:bilibili] Step 1: navigate to home");
+  log.info("bilibili: Step 1 — navigate to home");
 
   // ---- Step 1: Navigate to HOME first (for followers + content count) ----
   try {
@@ -172,16 +177,16 @@ async function collect(helpers) {
 
   if (homeText) {
     const flat = flattenSnapshot(homeText);
-    console.error(`[collector:bilibili] home flat (first 500): ${flat.substring(0, 500)}`);
-    result.followers = findMetric(homeText, ["粉丝", "粉丝数", "关注数"]);
-    result.contentCount = findMetric(homeText, ["投稿", "稿件", "投稿数", "稿件数", "视频数"]);
+    log.info(`bilibili: home flat (${flat.length} chars): ${flat.substring(0, 500)}`);
+    result.followers = findMetric(homeText, ["粉丝", "粉丝数", "关注数"], log);
+    result.contentCount = findMetric(homeText, ["投稿", "稿件", "投稿数", "稿件数", "视频数"], log);
     // Also try to get engagement from home if available
-    result.totalViews = findMetric(homeText, ["播放量", "总播放", "播放"]);
-    result.totalLikes = findMetric(homeText, ["点赞数", "点赞", "获赞"]);
+    result.totalViews = findMetric(homeText, ["播放量", "总播放", "播放"], log);
+    result.totalLikes = findMetric(homeText, ["点赞数", "点赞", "获赞"], log);
   }
 
   // ---- Step 2: Navigate to data overview for detailed engagement ----
-  console.error("[collector:bilibili] Step 2: navigate to data overview");
+  log.info("bilibili: Step 2 — navigate to data overview");
   try {
     helpers.navigate("https://member.bilibili.com/platform/data/overview");
   } catch {
@@ -199,20 +204,20 @@ async function collect(helpers) {
 
   if (dataText) {
     const flat = flattenSnapshot(dataText);
-    console.error(`[collector:bilibili] data flat (first 500): ${flat.substring(0, 500)}`);
+    log.info(`bilibili: data flat (${flat.length} chars): ${flat.substring(0, 500)}`);
     // Override engagement metrics if data page has better values
-    const views = findMetric(dataText, ["播放量", "总播放量", "总播放", "播放数", "阅读量"]);
+    const views = findMetric(dataText, ["播放量", "总播放量", "总播放", "播放数", "阅读量"], log);
     if (views > result.totalViews) result.totalViews = views;
-    const likes = findMetric(dataText, ["点赞", "点赞数", "获赞"]);
+    const likes = findMetric(dataText, ["点赞", "点赞数", "获赞"], log);
     if (likes > result.totalLikes) result.totalLikes = likes;
-    if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论", "评论数", "弹幕"]);
-    if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享", "分享数", "转发数"]);
+    if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论", "评论数", "弹幕"], log);
+    if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享", "分享数", "转发数"], log);
     // Try followers from data page if home didn't get it
-    if (result.followers === 0) result.followers = findMetric(dataText, ["粉丝总数", "粉丝数", "粉丝"]);
-    if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["投稿数", "稿件数", "视频数"]);
+    if (result.followers === 0) result.followers = findMetric(dataText, ["粉丝总数", "粉丝数", "粉丝"], log);
+    if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["投稿数", "稿件数", "视频数"], log);
   }
 
-  console.error(`[collector:bilibili] result: ${JSON.stringify(result)}`);
+  log.info(`bilibili: result = ${JSON.stringify(result)}`);
   return result;
 }
 
