@@ -238,8 +238,6 @@ function ensureOpenClawConfig(workspaceDir, gatewayOpts) {
       enabled: true,
       defaultProfile: "openclaw",
       headless: false,
-      timeout: 30000,
-      navigationTimeout: 60000,
     },
     models: {
       mode: "merge",
