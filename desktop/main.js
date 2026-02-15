@@ -37,6 +37,9 @@ let bridgeInstance = null;
 let openclawProcess = null;
 let openclawRestartTimer = null;
 let localOpenClawPort = 3000;
+// Serialize data refreshes per browser profile to prevent concurrent collectors
+// from navigating the same browser to different URLs simultaneously.
+const dataRefreshQueue = new Map();
 let localGatewayToken = null;
 let keepLocalOpenClawAlive = false;
 let openclawStartedAt = 0;
@@ -770,14 +773,28 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
     },
     onDataRefresh: async (platform, accountId = "default") => {
       log.info(`Data refresh for: ${platform} (account=${accountId})`);
-      const { collectPlatformData } = require("./platform-scripts");
+      const { collectPlatformData, getProfileName } = require("./platform-scripts");
       const sysNode = findSystemNode();
       const ocPath = getOpenClawPath();
       const wsDir = getWorkspaceDir();
       if (!sysNode || !fs.existsSync(ocPath)) {
         throw new Error("OpenClaw or system Node.js not available");
       }
-      return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir }, accountId);
+      // Serialize data refreshes that share the same browser profile.
+      // All default-account platforms use the "openclaw" profile, so concurrent
+      // refreshes would navigate the same browser to different URLs and interfere.
+      const profile = getProfileName(platform, accountId);
+      const prev = dataRefreshQueue.get(profile) || Promise.resolve();
+      let releaseLock;
+      const lock = new Promise((resolve) => { releaseLock = resolve; });
+      dataRefreshQueue.set(profile, lock);
+      await prev; // wait for previous refresh on this profile to finish
+      log.info(`Data refresh lock acquired for ${platform} (profile=${profile})`);
+      try {
+        return await collectPlatformData(platform, { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir }, accountId);
+      } finally {
+        releaseLock();
+      }
     },
     onCheckCookies: async (domain, browserProfile = "openclaw") => {
       log.info(`Checking browser cookies via OpenClaw CLI (profile=${browserProfile})...`);
