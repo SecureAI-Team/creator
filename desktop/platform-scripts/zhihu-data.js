@@ -14,9 +14,13 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
+  console.error("[collector:zhihu] Step 1: navigate to creator");
+
   try {
     helpers.navigate("https://www.zhihu.com/creator");
   } catch {}
+
+  await helpers.sleep(5000);
 
   let homeText = await waitForContent(
     helpers,
@@ -26,6 +30,8 @@ async function collect(helpers) {
   );
 
   if (homeText) {
+    const flat = flattenSnapshot(homeText);
+    console.error(`[collector:zhihu] home flat (first 500): ${flat.substring(0, 500)}`);
     result.followers = findMetric(homeText, ["关注者", "粉丝数", "粉丝", "总关注"]);
     result.totalViews = findMetric(homeText, ["阅读量", "总阅读", "浏览量", "展示次数"]);
     result.totalLikes = findMetric(homeText, ["赞同数", "获赞", "赞同", "点赞数"]);
@@ -42,6 +48,7 @@ async function collect(helpers) {
       for (const linkText of ["内容分析", "数据分析", "创作数据", "数据"]) {
         if (helpers.clickByText(snap, linkText)) {
           clicked = true;
+          console.error(`[collector:zhihu] Clicked "${linkText}"`);
           break;
         }
       }
@@ -49,6 +56,8 @@ async function collect(helpers) {
         await helpers.sleep(5000);
         const dataText = helpers.snapshot();
         if (dataText) {
+          const flat = flattenSnapshot(dataText);
+          console.error(`[collector:zhihu] data flat (first 500): ${flat.substring(0, 500)}`);
           if (result.followers === 0) result.followers = findMetric(dataText, ["关注者", "粉丝", "总关注"]);
           if (result.totalViews === 0) result.totalViews = findMetric(dataText, ["阅读量", "总阅读", "浏览"]);
           if (result.totalLikes === 0) result.totalLikes = findMetric(dataText, ["赞同", "获赞", "点赞"]);
@@ -57,8 +66,11 @@ async function collect(helpers) {
         }
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error(`[collector:zhihu] data click error: ${err.message}`);
+  }
 
+  console.error(`[collector:zhihu] result: ${JSON.stringify(result)}`);
   return result;
 }
 

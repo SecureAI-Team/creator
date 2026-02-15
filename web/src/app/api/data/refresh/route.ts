@@ -78,8 +78,10 @@ export const POST = auth(async function POST(req) {
         // Include accountId in the command so the desktop uses the right browser profile
         const command = `/data refresh ${platformKey} ${acctId}`;
 
-        // Per-account timeout: 90 seconds
-        const reply = await sendMessage(userId, command, 90_000);
+        // Per-account timeout: 5 minutes
+        // Each platform collection involves 2 navigations + waitForContent polls,
+        // which can take 2-3 minutes in the exe environment.
+        const reply = await sendMessage(userId, command, 300_000);
 
         // Parse the reply
         let platformData: PlatformData | null = null;

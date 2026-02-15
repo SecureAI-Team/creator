@@ -1,8 +1,11 @@
 /**
  * Xiaohongshu (小红书) creator dashboard data collector.
  *
- * Strategy: navigate to explicit URLs, don't fallback to open(),
- * poll with long waitForContent timeout.
+ * Strategy:
+ *   - Home page (/creator/home): get followers, contentCount from profile section.
+ *   - Data page (/creator/data): get engagement metrics (views, likes, comments, shares).
+ *   - DO NOT override followers from data page — it shows period metrics (涨粉)
+ *     not total followers, and numbers near "粉丝" on data page are misleading.
  */
 
 const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
@@ -17,48 +20,65 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
+  console.error("[collector:xiaohongshu] Step 1: navigate to home");
+
   // ---- Step 1: Navigate to home ----
   try {
     helpers.navigate("https://creator.xiaohongshu.com/creator/home");
   } catch {}
 
+  await helpers.sleep(5000);
+
+  // Use specific home page keywords to avoid matching on stale content
   let homeText = await waitForContent(
     helpers,
-    ["粉丝", "笔记", "创作者", "赞藏", "关注"],
-    60000,
+    ["粉丝数", "获赞与收藏", "笔记数", "创作者中心"],
+    90000,
     3000
   );
 
   if (homeText) {
-    result.followers = findMetric(homeText, ["粉丝数", "粉丝", "关注者"]);
-    result.totalViews = findMetric(homeText, ["观看量", "阅读量", "曝光量", "曝光数", "浏览量"]);
-    result.totalLikes = findMetric(homeText, ["点赞数", "赞藏量", "获赞与收藏", "获赞", "点赞"]);
+    const flat = flattenSnapshot(homeText);
+    console.error(`[collector:xiaohongshu] home flat (first 500): ${flat.substring(0, 500)}`);
+    // Use "粉丝数" (specific label on home page) — NOT generic "粉丝"
+    // which could match chart labels on the data page
+    result.followers = findMetric(homeText, ["粉丝数", "关注者"]);
+    result.totalLikes = findMetric(homeText, ["获赞与收藏", "赞藏量", "获赞", "点赞数"]);
     result.totalComments = findMetric(homeText, ["评论数", "评论量", "评论"]);
     result.totalShares = findMetric(homeText, ["分享数", "转发数", "分享"]);
     result.contentCount = findMetric(homeText, ["笔记数", "作品数", "笔记", "已发布"]);
   }
 
   // ---- Step 2: Navigate to data dashboard ----
+  // Data page has engagement metrics: 曝光数, 观看数, 互动量 etc.
+  // DO NOT use data page for followers — numbers near "粉丝" on data page
+  // are period-based (涨粉/粉丝增长) and will be misleading.
+  console.error("[collector:xiaohongshu] Step 2: navigate to data");
   try {
     helpers.navigate("https://creator.xiaohongshu.com/creator/data");
   } catch {}
 
+  await helpers.sleep(3000);
+
   const dataText = await waitForContent(
     helpers,
-    ["曝光数", "观看数", "点赞数", "涨粉", "互动"],
-    45000,
+    ["曝光数", "观看数", "互动数", "数据概览", "数据中心"],
+    60000,
     3000
   );
 
   if (dataText) {
-    if (result.followers === 0) result.followers = findMetric(dataText, ["粉丝数", "粉丝", "涨粉"]);
-    if (result.totalViews === 0) result.totalViews = findMetric(dataText, ["观看数", "观看量", "曝光数", "曝光"]);
+    const flat = flattenSnapshot(dataText);
+    console.error(`[collector:xiaohongshu] data flat (first 500): ${flat.substring(0, 500)}`);
+    // Only get engagement metrics from data page, NOT followers
+    if (result.totalViews === 0) result.totalViews = findMetric(dataText, ["观看数", "观看量", "曝光数", "曝光量", "浏览量", "阅读量"]);
     if (result.totalLikes === 0) result.totalLikes = findMetric(dataText, ["点赞数", "赞藏", "获赞"]);
     if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论数", "评论"]);
     if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享数", "转发"]);
     if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["笔记数", "作品数"]);
   }
 
+  console.error(`[collector:xiaohongshu] result: ${JSON.stringify(result)}`);
   return result;
 }
 

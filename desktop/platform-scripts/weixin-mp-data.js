@@ -16,9 +16,13 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
+  console.error("[collector:weixin-mp] Step 1: navigate to mp.weixin.qq.com");
+
   try {
     helpers.navigate("https://mp.weixin.qq.com");
   } catch {}
+
+  await helpers.sleep(3000);
 
   let homeText = await waitForContent(
     helpers,
@@ -28,6 +32,8 @@ async function collect(helpers) {
   );
 
   if (homeText) {
+    const flat = flattenSnapshot(homeText);
+    console.error(`[collector:weixin-mp] home flat (first 500): ${flat.substring(0, 500)}`);
     result.followers = findMetric(homeText, ["总用户数", "累计关注", "总关注"]);
     result.totalViews = findMetric(homeText, ["昨日阅读", "阅读量", "总阅读"]);
     result.totalShares = findMetric(homeText, ["昨日分享", "分享次数"]);
@@ -36,6 +42,7 @@ async function collect(helpers) {
     result.totalComments = findMetric(homeText, ["评论", "留言"]);
   }
 
+  console.error(`[collector:weixin-mp] result: ${JSON.stringify(result)}`);
   return result;
 }
 

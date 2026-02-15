@@ -61,6 +61,7 @@ function flattenSnapshot(snapshot) {
 
 /**
  * Try to find a numeric value near a given label in the snapshot text.
+ * Returns the FIRST match (not max), which is usually the primary display value.
  */
 function findMetric(snapshot, labels) {
   if (!snapshot) return 0;
@@ -68,33 +69,35 @@ function findMetric(snapshot, labels) {
   if (!flat) return 0;
 
   for (const label of labels) {
+    // Pattern: label followed by number (e.g. "粉丝 993", "粉丝：993", "粉丝数 0")
     const forwardRegex = new RegExp(label + "\\s*[：:]?\\s*([\\d,.]+[万亿]?)", "g");
-    let match;
-    let maxVal = -1;
-    let foundAny = false;
-    while ((match = forwardRegex.exec(flat)) !== null) {
-      foundAny = true;
+    const match = forwardRegex.exec(flat);
+    if (match) {
       const val = parseChineseNumber(match[1]);
-      if (val > maxVal) maxVal = val;
+      console.error(`[collector] findMetric "${label}" → ${match[0]} = ${val}`);
+      return val;
     }
-    if (foundAny) return Math.max(0, maxVal);
 
+    // Token pattern: label then whitespace then number
     const tokenRegex = new RegExp(label + "\\s+(\\d[\\d,.]*[万亿]?)", "g");
-    while ((match = tokenRegex.exec(flat)) !== null) {
-      foundAny = true;
-      const val = parseChineseNumber(match[1]);
-      if (val > maxVal) maxVal = val;
+    const tmatch = tokenRegex.exec(flat);
+    if (tmatch) {
+      const val = parseChineseNumber(tmatch[1]);
+      console.error(`[collector] findMetric "${label}" (token) → ${tmatch[0]} = ${val}`);
+      return val;
     }
-    if (foundAny) return Math.max(0, maxVal);
   }
 
   // Reverse pattern: number BEFORE label (last resort)
   for (const label of labels) {
     const reverseRegex = new RegExp("(\\d[\\d,.]*[万亿]?)\\s+" + label, "g");
-    let match;
-    while ((match = reverseRegex.exec(flat)) !== null) {
+    const match = reverseRegex.exec(flat);
+    if (match) {
       const val = parseChineseNumber(match[1]);
-      if (val > 0) return val;
+      if (val > 0) {
+        console.error(`[collector] findMetric "${label}" (reverse) → ${match[0]} = ${val}`);
+        return val;
+      }
     }
   }
 
@@ -103,15 +106,21 @@ function findMetric(snapshot, labels) {
 
 /**
  * Poll the page snapshot until one of the keywords appears, or timeout.
+ * Logs progress to stderr so it appears in desktop app logs.
  */
 async function waitForContent(helpers, keywords, maxWaitMs = 15000, intervalMs = 2000) {
   const start = Date.now();
   let lastSnapshot = "";
+  let polls = 0;
   while (Date.now() - start < maxWaitMs) {
+    polls++;
     try {
       lastSnapshot = helpers.snapshot();
       const flat = flattenSnapshot(lastSnapshot);
-      if (keywords.some((kw) => flat.includes(kw))) {
+      const matched = keywords.find((kw) => flat.includes(kw));
+      if (matched) {
+        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+        console.error(`[collector] waitForContent matched "${matched}" after ${elapsed}s (${polls} polls, flat=${flat.length} chars)`);
         return lastSnapshot;
       }
     } catch {
@@ -119,11 +128,18 @@ async function waitForContent(helpers, keywords, maxWaitMs = 15000, intervalMs =
     }
     await helpers.sleep(intervalMs);
   }
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  const flatLen = flattenSnapshot(lastSnapshot).length;
+  console.error(`[collector] waitForContent timeout after ${elapsed}s (${polls} polls, flat=${flatLen} chars, keywords=[${keywords.join(",")}])`);
   return lastSnapshot;
 }
 
 /**
  * Collect data from bilibili creator dashboard.
+ *
+ * Bilibili data overview page has engagement metrics (views, likes, etc.)
+ * but NOT total followers or total content count. Those come from the home page.
+ * Strategy: start with HOME page (followers + content count), then DATA page.
  */
 async function collect(helpers) {
   const result = {
@@ -135,50 +151,68 @@ async function collect(helpers) {
     contentCount: 0,
   };
 
-  // ---- Step 1: Navigate to data overview ----
-  // Don't fallback to open() — it creates a new tab and resets loading progress.
+  console.error("[collector:bilibili] Step 1: navigate to home");
+
+  // ---- Step 1: Navigate to HOME first (for followers + content count) ----
   try {
-    helpers.navigate("https://member.bilibili.com/platform/data/overview");
+    helpers.navigate("https://member.bilibili.com/platform/home");
   } catch {
     // Timeout OK — browser continues loading in background
   }
 
-  // ---- Step 2: Wait for data content (up to 60s) ----
+  await helpers.sleep(5000);
+
+  // Home page keywords: "粉丝" count, "投稿" count, "播放" count
+  const homeText = await waitForContent(
+    helpers,
+    ["粉丝", "投稿", "播放量", "创作中心"],
+    60000,
+    3000
+  );
+
+  if (homeText) {
+    const flat = flattenSnapshot(homeText);
+    console.error(`[collector:bilibili] home flat (first 500): ${flat.substring(0, 500)}`);
+    result.followers = findMetric(homeText, ["粉丝", "粉丝数", "关注数"]);
+    result.contentCount = findMetric(homeText, ["投稿", "稿件", "投稿数", "稿件数", "视频数"]);
+    // Also try to get engagement from home if available
+    result.totalViews = findMetric(homeText, ["播放量", "总播放", "播放"]);
+    result.totalLikes = findMetric(homeText, ["点赞数", "点赞", "获赞"]);
+  }
+
+  // ---- Step 2: Navigate to data overview for detailed engagement ----
+  console.error("[collector:bilibili] Step 2: navigate to data overview");
+  try {
+    helpers.navigate("https://member.bilibili.com/platform/data/overview");
+  } catch {
+    // Timeout OK
+  }
+
+  await helpers.sleep(3000);
+
   let dataText = await waitForContent(
     helpers,
-    ["粉丝总数", "粉丝数", "播放量", "点赞", "互动", "涨粉"],
+    ["播放量", "点赞", "互动", "涨粉", "数据概览", "数据中心"],
     60000,
     3000
   );
 
   if (dataText) {
-    result.followers = findMetric(dataText, ["粉丝总数", "粉丝数", "粉丝", "关注数"]);
-    result.totalViews = findMetric(dataText, ["播放量", "总播放量", "总播放", "播放数", "阅读量"]);
-    result.totalLikes = findMetric(dataText, ["点赞", "点赞数", "获赞"]);
-    result.totalComments = findMetric(dataText, ["评论", "评论数", "弹幕"]);
-    result.totalShares = findMetric(dataText, ["分享", "分享数", "转发数"]);
-    result.contentCount = findMetric(dataText, ["投稿数", "稿件数", "视频数", "投稿"]);
+    const flat = flattenSnapshot(dataText);
+    console.error(`[collector:bilibili] data flat (first 500): ${flat.substring(0, 500)}`);
+    // Override engagement metrics if data page has better values
+    const views = findMetric(dataText, ["播放量", "总播放量", "总播放", "播放数", "阅读量"]);
+    if (views > result.totalViews) result.totalViews = views;
+    const likes = findMetric(dataText, ["点赞", "点赞数", "获赞"]);
+    if (likes > result.totalLikes) result.totalLikes = likes;
+    if (result.totalComments === 0) result.totalComments = findMetric(dataText, ["评论", "评论数", "弹幕"]);
+    if (result.totalShares === 0) result.totalShares = findMetric(dataText, ["分享", "分享数", "转发数"]);
+    // Try followers from data page if home didn't get it
+    if (result.followers === 0) result.followers = findMetric(dataText, ["粉丝总数", "粉丝数", "粉丝"]);
+    if (result.contentCount === 0) result.contentCount = findMetric(dataText, ["投稿数", "稿件数", "视频数"]);
   }
 
-  // ---- Step 3: Supplement from home page if needed ----
-  if (result.followers === 0) {
-    try {
-      helpers.navigate("https://member.bilibili.com/platform/home");
-    } catch {}
-    const homeText = await waitForContent(
-      helpers,
-      ["粉丝", "播放", "投稿"],
-      30000,
-      3000
-    );
-    if (homeText) {
-      result.followers = findMetric(homeText, ["粉丝", "关注者"]);
-      if (result.contentCount === 0) {
-        result.contentCount = findMetric(homeText, ["投稿", "稿件", "视频"]);
-      }
-    }
-  }
-
+  console.error(`[collector:bilibili] result: ${JSON.stringify(result)}`);
   return result;
 }
 
