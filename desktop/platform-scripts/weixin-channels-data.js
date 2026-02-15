@@ -1,18 +1,13 @@
 /**
  * WeChat Channels (微信视频号) creator dashboard data collector.
  *
- * Navigates to https://channels.weixin.qq.com and extracts metrics
- * from the creator center dashboard.
- *
- * Page layout (from real snapshot):
- *   视频号ID: sphjnVNVq4gWQrX
- *   视频 36              → contentCount
- *   关注者 107            → followers
- *   昨日数据
- *   净增关注 4            → rawData.dailyNewFollowers
- *   新增播放 469          → totalViews (daily)
- *   新增点赞 0            → totalLikes (daily)
- *   新增评论 0            → totalComments (daily)
+ * Strategy:
+ *   1. Navigate to https://channels.weixin.qq.com/platform
+ *      (the /platform path ensures we land on the creator dashboard,
+ *      not the main Channels homepage which has no data).
+ *   2. Wait for dashboard content keywords.
+ *   3. Parse metrics from the dashboard.
+ *   4. Try clicking "数据中心" for more detail.
  */
 
 const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
@@ -29,50 +24,35 @@ async function collect(helpers) {
     totalComments: 0,
     totalShares: 0,
     contentCount: 0,
-    rawData: {},
   };
 
-  // ---- Step 1: Navigate to WeChat Channels creator center ----
+  // ---- Step 1: Navigate to WeChat Channels creator dashboard ----
   try {
-    helpers.navigate("https://channels.weixin.qq.com");
+    helpers.navigate("https://channels.weixin.qq.com/platform");
   } catch {
     try {
-      helpers.open("https://channels.weixin.qq.com");
-    } catch {
-      // Timeout OK — browser should be open
-    }
+      helpers.open("https://channels.weixin.qq.com/platform");
+    } catch {}
   }
 
   // ---- Step 2: Wait for content to appear ----
   let homeText = await waitForContent(
     helpers,
-    ["视频号", "关注者", "视频", "昨日", "创作"],
-    20000,
+    ["视频号", "关注者", "视频", "昨日", "创作", "数据"],
+    25000,
     3000
   );
 
   if (homeText) {
-    result.rawData.homeSnapshot = homeText.substring(0, 5000);
-    result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 3000);
-
-    // Cumulative metrics from profile section
     result.followers = findMetric(homeText, ["关注者", "粉丝数", "粉丝", "总关注"]);
     result.contentCount = findMetric(homeText, ["视频", "作品数", "作品", "已发布"]);
-
-    // Daily metrics from "昨日数据" section
     result.totalViews = findMetric(homeText, ["新增播放", "播放量", "播放", "曝光"]);
     result.totalLikes = findMetric(homeText, ["新增点赞", "点赞数", "点赞", "获赞"]);
     result.totalComments = findMetric(homeText, ["新增评论", "评论数", "评论"]);
     result.totalShares = findMetric(homeText, ["新增分享", "分享数", "分享", "转发"]);
-
-    // Store daily change data
-    const dailyNewFollowers = findMetric(homeText, ["净增关注", "新增关注"]);
-    if (dailyNewFollowers > 0) {
-      result.rawData.dailyNewFollowers = dailyNewFollowers;
-    }
   }
 
-  // ---- Step 3: Try to navigate to data/analytics page for more detail ----
+  // ---- Step 3: Try data center for more detail ----
   try {
     const snap = homeText || helpers.snapshot();
     if (snap) {
@@ -87,10 +67,6 @@ async function collect(helpers) {
         await helpers.sleep(4000);
         const dataText = helpers.snapshot();
         if (dataText) {
-          result.rawData.dataSnapshot = dataText.substring(0, 5000);
-          result.rawData.dataFlatText = flattenSnapshot(dataText).substring(0, 3000);
-
-          // Try to find total/aggregate metrics from the data page
           if (result.followers === 0) {
             result.followers = findMetric(dataText, ["关注者", "粉丝", "总关注"]);
           }
@@ -112,11 +88,6 @@ async function collect(helpers) {
   } catch {
     // Non-critical
   }
-
-  // ---- Step 4: Screenshot for debugging ----
-  try {
-    helpers.screenshot();
-  } catch {}
 
   return result;
 }

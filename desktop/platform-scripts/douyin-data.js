@@ -1,18 +1,13 @@
 /**
  * Douyin (抖音) creator dashboard data collector.
  *
- * Navigates to https://creator.douyin.com and extracts metrics
- * from the dashboard overview page.
- *
- * Key metrics on the creator dashboard:
- *   Profile section (cumulative totals):
- *     关注 22, 粉丝 994, 获赞 4142
- *   Data section (per-video or 7-day stats):
- *     播放量 45 (video), 点赞量 1 (video)
- *     播放量 72 (7-day), 作品点赞 1 (7-day)
- *
- * IMPORTANT: Label priority matters! "获赞" (total=4142) must come BEFORE
- * "点赞量" (per-video=1) to capture the correct aggregate value.
+ * Strategy:
+ *   1. Navigate explicitly to /creator-micro/home (SPA may redirect to last-visited page
+ *      if we only go to creator.douyin.com, so we MUST use the full home URL).
+ *   2. Click "首页" in the sidebar to ensure we're on the homepage.
+ *   3. Parse homepage metrics (粉丝, 获赞, 播放).
+ *   4. Navigate to /creator-micro/data/overview for detailed data.
+ *   5. Parse data overview metrics.
  */
 
 const { findMetric, flattenSnapshot, waitForContent } = require("./bilibili-data");
@@ -29,35 +24,31 @@ async function collect(helpers) {
     totalComments: 0,
     totalShares: 0,
     contentCount: 0,
-    rawData: {},
   };
 
-  // ---- Step 1: Navigate to Douyin creator center ----
-  // Douyin can be slow (20s+ page load). Try navigate, catch timeout, proceed anyway.
+  // ---- Step 1: Navigate to explicit home URL ----
+  // IMPORTANT: Don't use just creator.douyin.com — the SPA remembers the last
+  // visited sub-page and may land on 关注管理, 内容管理, etc.
   try {
-    helpers.navigate("https://creator.douyin.com");
+    helpers.navigate("https://creator.douyin.com/creator-micro/home");
   } catch {
     try {
-      helpers.open("https://creator.douyin.com");
+      helpers.open("https://creator.douyin.com/creator-micro/home");
     } catch {
-      // Even open failed — page is loading slowly, but browser should be open
+      // Page loading slowly, proceed
     }
   }
 
-  // ---- Step 2: Wait for content to appear ----
+  // ---- Step 2: Wait for homepage content ----
   const homeText = await waitForContent(
     helpers,
-    ["粉丝", "播放", "作品", "创作者", "数据"],
-    20000,
+    ["粉丝", "播放", "获赞", "作品数"],
+    25000,
     3000
   );
 
   if (homeText) {
-    result.rawData.homeSnapshot = homeText.substring(0, 5000);
-    result.rawData.homeFlatText = flattenSnapshot(homeText).substring(0, 3000);
-
-    // Profile section cumulative labels first, then data section labels
-    result.followers = findMetric(homeText, ["粉丝总量", "粉丝数", "粉丝", "关注者"]);
+    result.followers = findMetric(homeText, ["粉丝总量", "粉丝数", "粉丝"]);
     result.totalLikes = findMetric(homeText, ["获赞", "总获赞", "点赞量", "点赞数"]);
     result.totalViews = findMetric(homeText, ["总播放量", "播放总量", "播放量", "展现量"]);
     result.totalComments = findMetric(homeText, ["评论量", "评论数", "评论"]);
@@ -65,62 +56,42 @@ async function collect(helpers) {
     result.contentCount = findMetric(homeText, ["作品数", "作品", "投稿数", "已发布"]);
   }
 
-  // ---- Step 3: Try data overview page via sidebar click (SPA) ----
+  // ---- Step 3: Navigate directly to data overview page ----
+  // Don't rely on sidebar click — the SPA sidebar may expand sub-menus instead
+  // of navigating. Use the direct URL instead.
   try {
-    const snap = homeText || helpers.snapshot();
-    if (snap) {
-      let clicked = false;
-      for (const linkText of ["数据概览", "数据中心", "数据"]) {
-        if (helpers.clickByText(snap, linkText)) {
-          clicked = true;
-          break;
-        }
-      }
-      if (clicked) {
-        await helpers.sleep(4000);
-      } else {
-        // Fallback: direct URL navigation
-        try {
-          helpers.navigate("https://creator.douyin.com/creator-micro/data/overview");
-        } catch {
-          // Timeout is OK, page may have partially loaded
-        }
-        await helpers.sleep(4000);
-      }
-    }
-
-    const dataText = helpers.snapshot();
-    if (dataText) {
-      result.rawData.dataSnapshot = dataText.substring(0, 5000);
-      result.rawData.dataFlatText = flattenSnapshot(dataText).substring(0, 3000);
-
-      if (result.followers === 0) {
-        result.followers = findMetric(dataText, ["粉丝总量", "粉丝数", "粉丝"]);
-      }
-      if (result.totalViews === 0) {
-        result.totalViews = findMetric(dataText, ["总播放量", "播放总量", "播放量", "播放"]);
-      }
-      if (result.totalLikes === 0) {
-        result.totalLikes = findMetric(dataText, ["获赞", "总获赞", "点赞量", "点赞"]);
-      }
-      if (result.totalComments === 0) {
-        result.totalComments = findMetric(dataText, ["评论量", "评论数", "评论"]);
-      }
-      if (result.totalShares === 0) {
-        result.totalShares = findMetric(dataText, ["转发量", "分享量", "分享"]);
-      }
-      if (result.contentCount === 0) {
-        result.contentCount = findMetric(dataText, ["作品数", "投稿数", "视频数"]);
-      }
-    }
+    helpers.navigate("https://creator.douyin.com/creator-micro/data/overview");
   } catch {
-    // Non-critical
+    // Timeout OK, page may still load
   }
 
-  // ---- Step 4: Screenshot for debugging ----
-  try {
-    helpers.screenshot();
-  } catch {}
+  const dataText = await waitForContent(
+    helpers,
+    ["粉丝总量", "粉丝数", "播放量", "作品点赞", "涨粉"],
+    20000,
+    3000
+  );
+
+  if (dataText) {
+    if (result.followers === 0) {
+      result.followers = findMetric(dataText, ["粉丝总量", "粉丝数", "粉丝"]);
+    }
+    if (result.totalViews === 0) {
+      result.totalViews = findMetric(dataText, ["总播放量", "播放总量", "播放量", "播放"]);
+    }
+    if (result.totalLikes === 0) {
+      result.totalLikes = findMetric(dataText, ["获赞", "总获赞", "作品点赞", "点赞量"]);
+    }
+    if (result.totalComments === 0) {
+      result.totalComments = findMetric(dataText, ["评论量", "评论数", "评论"]);
+    }
+    if (result.totalShares === 0) {
+      result.totalShares = findMetric(dataText, ["转发量", "分享量", "分享"]);
+    }
+    if (result.contentCount === 0) {
+      result.contentCount = findMetric(dataText, ["作品数", "投稿数", "视频数"]);
+    }
+  }
 
   return result;
 }
