@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageSquare, Send, Loader2, Plus, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { MessageSquare, Send, Loader2, Plus, Trash2, ToggleLeft, ToggleRight, RefreshCw } from "lucide-react";
 
 const PLATFORMS = [
   { key: "all", label: "全部平台" },
@@ -57,6 +57,7 @@ export default function CommentsPage() {
   const [newRuleReply, setNewRuleReply] = useState("");
   const [newRulePlatform, setNewRulePlatform] = useState("all");
   const [submittingRule, setSubmittingRule] = useState(false);
+  const [refreshingComments, setRefreshingComments] = useState(false);
 
   const fetchComments = useCallback(async () => {
     if (tab === "rules") return;
@@ -177,6 +178,22 @@ export default function CommentsPage() {
     }
   };
 
+  const handleRefreshComments = async () => {
+    setRefreshingComments(true);
+    try {
+      const res = await fetch("/api/comments/refresh", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        await fetchComments();
+      } else {
+        alert(data.error || "刷新失败");
+      }
+    } catch (e) {
+      alert("刷新评论失败");
+    }
+    setRefreshingComments(false);
+  };
+
   const getPlatformInfo = (key: string) =>
     PLATFORMS.find((p) => p.key === key) || { key, label: key, initial: "?", color: "from-gray-400 to-gray-500" };
 
@@ -212,17 +229,33 @@ export default function CommentsPage() {
           ))}
         </div>
         {tab !== "rules" && (
-          <select
-            value={platform}
-            onChange={(e) => setPlatform(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-          >
-            {PLATFORMS.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+          <>
+            <select
+              value={platform}
+              onChange={(e) => setPlatform(e.target.value)}
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              {PLATFORMS.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefreshComments}
+              disabled={refreshingComments}
+              className="rounded-xl"
+            >
+              {refreshingComments ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              <span className="ml-1.5">刷新评论</span>
+            </Button>
+          </>
         )}
       </div>
 

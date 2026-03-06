@@ -15,6 +15,12 @@ files:
   - "!dist"
   - "!node_modules/.cache"
 
+# OpenClaw skills (repo root skills/) — unpacked so main process can copy to workspace
+extraResources:
+  - from: "../skills"
+    to: "skills"
+    filter: ["**/*"]
+
 # ---- Windows ----
 win:
   target:

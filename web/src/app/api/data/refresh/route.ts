@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { normalizeAndStore } from "@/lib/canonical";
+import { checkQuota, recordUsage } from "@/lib/quota";
 import { sendMessage } from "@/lib/openclaw";
 import { isWeChatNotifyEnabled, notifyAnomalyAlert, type NotifyConfig } from "@/lib/wechat-notify";
 import { NextResponse } from "next/server";
@@ -85,6 +86,14 @@ export const POST = auth(async function POST(req) {
         message: "没有可采集的平台",
         storedPlatforms: [],
       });
+    }
+
+    const quota = await checkQuota(userId, "data_refresh");
+    if (!quota.allowed) {
+      return NextResponse.json(
+        { success: false, message: "今日数据刷新次数已达上限", limit: quota.limit, used: quota.used },
+        { status: 429 }
+      );
     }
 
     console.log(`[data/refresh] Collecting from ${targetAccounts.length} account(s): ${targetAccounts.map((c) => `${c.platformKey}:${c.accountId}`).join(", ")}`);
@@ -234,6 +243,9 @@ export const POST = auth(async function POST(req) {
       parts.push(`失败: ${errors.join("; ")}`);
     }
 
+    if (storedPlatforms.length > 0) {
+      await recordUsage(userId, "data_refresh");
+    }
     audit({
       userId,
       action: "data_refresh",

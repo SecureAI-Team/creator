@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { sendViaBridge } from "@/lib/bridge";
+import { checkQuota, recordUsage } from "@/lib/quota";
 import { isWeChatNotifyEnabled, notifyPublishResult, type NotifyConfig } from "@/lib/wechat-notify";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -185,6 +186,16 @@ export async function POST(
 
     const isScheduled = scheduledAt && scheduledAt.getTime() > Date.now();
 
+    if (!isScheduled) {
+      const quota = await checkQuota(userId, "publish");
+      if (!quota.allowed) {
+        return NextResponse.json(
+          { error: "今日发布次数已达上限", limit: quota.limit, used: quota.used },
+          { status: 429 }
+        );
+      }
+    }
+
     // Create publish records
     const publishRecords = await Promise.all(
       targets.map((t) =>
@@ -206,6 +217,10 @@ export async function POST(
 
     // Update content status to PUBLISHING
     await prisma.contentItem.update({ where: { id: contentId }, data: { status: "PUBLISHING" } });
+
+    if (!isScheduled) {
+      await recordUsage(userId, "publish");
+    }
 
     // Fire-and-forget publish for each target
     for (const t of targets) {

@@ -206,14 +206,65 @@ function findSystemNode() {
 }
 
 /**
+ * Resolve path to OpenClaw skills: packaged app uses extraResources "skills", dev uses repo ../skills.
+ * @returns {string|null} Absolute path to skills directory, or null if not found
+ */
+function getSkillsSourcePath() {
+  if (app.isPackaged && process.resourcesPath) {
+    const bundled = path.join(process.resourcesPath, "skills");
+    if (fs.existsSync(bundled) && fs.statSync(bundled).isDirectory()) {
+      return bundled;
+    }
+  }
+  const repoSkills = path.join(__dirname, "..", "skills");
+  if (fs.existsSync(repoSkills) && fs.statSync(repoSkills).isDirectory()) {
+    return repoSkills;
+  }
+  return null;
+}
+
+/**
+ * Copy project skills into workspace/skills so OpenClaw can load them (./skills).
+ * Only copies when workspace/skills is missing or empty.
+ * Source: packaged app → resources/skills; dev → repo root skills/.
+ *
+ * @param {string} workspaceDir
+ */
+function ensureWorkspaceSkills(workspaceDir) {
+  const destSkills = path.join(workspaceDir, "skills");
+  const sourceSkills = getSkillsSourcePath();
+  if (!sourceSkills) {
+    return;
+  }
+  const destExists = fs.existsSync(destSkills);
+  const destEmpty = !destExists || (fs.statSync(destSkills).isDirectory() && fs.readdirSync(destSkills).length === 0);
+  if (!destEmpty) {
+    return; // already populated (e.g. by server sync or previous copy)
+  }
+  try {
+    fs.mkdirSync(path.dirname(destSkills), { recursive: true });
+    if (destExists) {
+      fs.rmSync(destSkills, { recursive: true });
+    }
+    fs.cpSync(sourceSkills, destSkills, { recursive: true });
+    log.info("Copied OpenClaw skills to workspace:", destSkills);
+  } catch (err) {
+    log.warn("Could not copy skills to workspace:", err.message);
+  }
+}
+
+/**
  * Ensure OpenClaw config exists with DashScope/Qwen provider (OpenAI-compatible)
  * and browser automation enabled.
  * Creates/updates {workspaceDir}/.openclaw/openclaw.json and workspace AGENTS.md.
+ * Also ensures workspace/skills is populated from project skills so OpenClaw can load them.
  *
  * @param {string} workspaceDir
  * @param {{ port?: number, token?: string }} [gatewayOpts] - gateway port & token
  */
 function ensureOpenClawConfig(workspaceDir, gatewayOpts) {
+  ensureWorkspaceSkills(workspaceDir);
+
   const configDir = path.join(workspaceDir, ".openclaw");
   const configPath = path.join(configDir, "openclaw.json");
 
@@ -257,9 +308,15 @@ function ensureOpenClawConfig(workspaceDir, gatewayOpts) {
         },
       },
     },
+    skills: {
+      load: {
+        watch: true,
+        watchDebounceMs: 250,
+      },
+    },
   };
 
-  // Always write config to ensure latest settings (browser config, gateway port, etc.)
+  // Always write config to ensure latest settings (browser config, gateway port, skills, etc.)
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
   log.info("Written OpenClaw config:", configPath, gatewayOpts?.port ? `(gateway port: ${gatewayOpts.port})` : "");
 

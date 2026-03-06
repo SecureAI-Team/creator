@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { checkQuota, recordUsage } from "@/lib/quota";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -89,6 +90,14 @@ export const POST = auth(async function POST(req) {
     );
   }
 
+  const quota = await checkQuota(userId, "content_create");
+  if (!quota.allowed) {
+    return NextResponse.json(
+      { error: "今日创作次数已达上限", limit: quota.limit, used: quota.used },
+      { status: 429 }
+    );
+  }
+
   const item = await prisma.contentItem.create({
     data: {
       userId,
@@ -102,6 +111,7 @@ export const POST = auth(async function POST(req) {
     },
   });
 
+  await recordUsage(userId, "content_create");
   audit({ userId, action: "content_create", target: item.id, metadata: { title: item.title } });
 
   return NextResponse.json(item, { status: 201 });
