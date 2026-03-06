@@ -3,17 +3,17 @@
   "name": "创作助手",
   "version": "1.0.0",
   "description": "AI 驱动的自媒体创作助手浏览器插件 — 侧边栏聊天、快速发布、平台状态监控",
-  "permissions": ["sidePanel", "activeTab", "storage", "notifications"],
-  "host_permissions": ["https://your-domain.com/*"],
+  "permissions": ["sidePanel", "activeTab", "storage", "notifications", "alarms"],
+  "host_permissions": ["https://*/*", "http://localhost/*"],
   "side_panel": {
     "default_path": "sidepanel/sidepanel.html"
   },
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {
-      "16": "icons/icon-16.svg",
-      "48": "icons/icon-48.svg",
-      "128": "icons/icon-128.svg"
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
     }
   },
   "content_scripts": [
@@ -28,8 +28,8 @@
   },
   "options_page": "options/options.html",
   "icons": {
-    "16": "icons/icon-16.svg",
-    "48": "icons/icon-48.svg",
-    "128": "icons/icon-128.svg"
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   }
 }

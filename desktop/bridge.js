@@ -358,6 +358,62 @@ function createBridge(serverUrl, options = {}) {
     const isStatus = typeof message === "string" && message.startsWith("/status ");
     const isPublish = typeof message === "string" && message.startsWith("/publish ");
     const isData = typeof message === "string" && message.startsWith("/data ");
+    const isComments = typeof message === "string" && message.startsWith("/comments ");
+    const isTrending = typeof message === "string" && (message === "/trends fetch" || message.startsWith("/trending"));
+
+    // ---- For /comments commands: collect or reply to comments ----
+    if (isComments) {
+      const parts = message.substring(10).trim();
+      bLog.info(`[${requestId}] Comments command: ${parts}`);
+      sendAck(requestId, "received");
+      emit({ type: "ack", requestId, stage: "received", message });
+
+      try {
+        if (typeof options.onComments === "function") {
+          const result = await options.onComments(parts);
+          bLog.info(`[${requestId}] Comments result: ${JSON.stringify(result).substring(0, 300)}`);
+          sendAck(requestId, "local_response");
+          emit({ type: "response", requestId, ok: true, message, reply: JSON.stringify(result) });
+          sendResponse(requestId, JSON.stringify(result));
+        } else {
+          throw new Error("No onComments handler available");
+        }
+      } catch (err) {
+        bLog.error(`[${requestId}] Comments error: ${err.message}`);
+        sendAck(requestId, "local_error");
+        emit({ type: "response", requestId, ok: false, message, error: err.message });
+        sendResponse(requestId, JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
+
+    // ---- For /trends or /trending commands: collect hot topics ----
+    if (isTrending) {
+      bLog.info(`[${requestId}] Trending command`);
+      sendAck(requestId, "received");
+      emit({ type: "ack", requestId, stage: "received", message });
+
+      try {
+        if (typeof options.onTrending === "function") {
+          const platformsArg = message.replace(/^\/(trends\s+fetch|trending)\s*/, "").trim();
+          const platforms = platformsArg ? platformsArg.split(/[\s,]+/).filter(Boolean) : undefined;
+          const result = await options.onTrending(platforms);
+          bLog.info(`[${requestId}] Trending result: ${Object.keys(result.results || {}).length} platforms`);
+          sendAck(requestId, "local_response");
+          const reply = JSON.stringify(result);
+          emit({ type: "response", requestId, ok: true, message, reply });
+          sendResponse(requestId, reply);
+        } else {
+          throw new Error("No onTrending handler available");
+        }
+      } catch (err) {
+        bLog.error(`[${requestId}] Trending error: ${err.message}`);
+        sendAck(requestId, "local_error");
+        emit({ type: "response", requestId, ok: false, message, error: err.message });
+        sendResponse(requestId, JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
 
     // ---- For /publish commands: invoke platform publish script ----
     if (isPublish) {

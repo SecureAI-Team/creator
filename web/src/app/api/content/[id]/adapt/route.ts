@@ -206,10 +206,30 @@ ${rules.name} 的要求:
       adapted.tags = adapted.tags.slice(0, rules.tagLimit);
     }
 
+    // Persist adaptation to DB
+    const saved = await prisma.contentAdaptation.upsert({
+      where: { contentId_platform: { contentId, platform } },
+      update: {
+        title: adapted.title || content.title,
+        body: adapted.body || content.body || "",
+        tags: adapted.tags || [],
+        coverUrl: adapted.coverUrl || null,
+      },
+      create: {
+        contentId,
+        platform,
+        title: adapted.title || content.title,
+        body: adapted.body || content.body || "",
+        tags: adapted.tags || [],
+        coverUrl: adapted.coverUrl || null,
+      },
+    });
+
     return NextResponse.json({
       platform,
       rules,
       adapted,
+      adaptationId: saved.id,
       method: "ai",
     });
   } catch (error) {
@@ -223,12 +243,47 @@ ${rules.name} 的要求:
 
 /**
  * GET /api/content/[id]/adapt
- * Get platform format rules (no AI involved).
+ * Get all saved adaptations for this content, plus platform rules.
  */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  await params; // consume params
-  return NextResponse.json({ rules: PLATFORM_RULES });
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: contentId } = await params;
+
+    const content = await prisma.contentItem.findFirst({
+      where: { id: contentId, userId: session.user.id },
+    });
+    if (!content) {
+      return NextResponse.json({ error: "内容不存在" }, { status: 404 });
+    }
+
+    const adaptations = await prisma.contentAdaptation.findMany({
+      where: { contentId },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    const adaptationMap: Record<string, { id: string; title: string; body: string; tags: string[]; coverUrl: string | null; updatedAt: Date }> = {};
+    for (const a of adaptations) {
+      adaptationMap[a.platform] = {
+        id: a.id,
+        title: a.title,
+        body: a.body,
+        tags: a.tags,
+        coverUrl: a.coverUrl,
+        updatedAt: a.updatedAt,
+      };
+    }
+
+    return NextResponse.json({ rules: PLATFORM_RULES, adaptations: adaptationMap });
+  } catch (error) {
+    console.error("[adapt GET] Error:", error);
+    return NextResponse.json({ error: "获取适配失败" }, { status: 500 });
+  }
 }

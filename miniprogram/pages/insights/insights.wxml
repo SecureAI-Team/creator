@@ -1,0 +1,41 @@
+<view class="container">
+  <view class="header">
+    <text class="title">智能洞察</text>
+    <view class="btn-summary" bindtap="onGenerateSummary">
+      <text>{{summaryLoading ? '生成中...' : 'AI 摘要'}}</text>
+    </view>
+  </view>
+
+  <!-- AI Summary -->
+  <view class="summary-card" wx:if="{{summary}}">
+    <text class="summary-title">AI 分析摘要</text>
+    <text class="summary-text">{{summary}}</text>
+  </view>
+
+  <view class="loading" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+
+  <view class="empty" wx:elif="{{insights.length === 0}}">
+    <text>暂无洞察，数据表现正常</text>
+  </view>
+
+  <block wx:else>
+    <view class="insight-list">
+      <view
+        class="insight-card {{item.severity === 'CRITICAL' ? 'critical' : item.severity === 'WARNING' ? 'warning' : 'info'}}"
+        wx:for="{{insights}}"
+        wx:key="id"
+      >
+        <view class="insight-header">
+          <text class="severity-badge">{{item.severity}}</text>
+          <text class="platform-tag" wx:if="{{item.platform}}">{{item.platform}}</text>
+          <view class="dismiss-btn" data-id="{{item.id}}" bindtap="onDismiss">
+            <text>✕</text>
+          </view>
+        </view>
+        <text class="insight-message">{{item.message}}</text>
+      </view>
+    </view>
+  </block>
+</view>

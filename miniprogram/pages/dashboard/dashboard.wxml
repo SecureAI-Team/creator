@@ -1,0 +1,44 @@
+<view class="container">
+  <view class="header">
+    <text class="title">数据看板</text>
+    <picker mode="selector" range="{{['近7天', '近30天', '近90天']}}" bindchange="onTimeRangeChange">
+      <text class="time-picker">{{timeRange}}天 ▾</text>
+    </picker>
+  </view>
+
+  <view class="loading" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+
+  <block wx:elif="{{metrics}}">
+    <!-- Platform cards -->
+    <view class="platform-list">
+      <block wx:for="{{metrics.latest}}" wx:key="index" wx:for-item="metric" wx:for-index="key">
+        <view class="platform-card">
+          <view class="platform-header">
+            <text class="platform-name">{{key}}</text>
+          </view>
+          <view class="metric-grid">
+            <view class="metric-item">
+              <text class="metric-value">{{metric.followers}}</text>
+              <text class="metric-label">粉丝</text>
+            </view>
+            <view class="metric-item">
+              <text class="metric-value">{{metric.totalViews}}</text>
+              <text class="metric-label">浏览</text>
+            </view>
+            <view class="metric-item">
+              <text class="metric-value">{{metric.totalLikes}}</text>
+              <text class="metric-label">点赞</text>
+            </view>
+          </view>
+          <view class="growth" wx:if="{{metrics.growth[key]}}">
+            <text class="growth-text">
+              粉丝变化: {{metrics.growth[key].followers >= 0 ? '+' : ''}}{{metrics.growth[key].followers}}
+            </text>
+          </view>
+        </view>
+      </block>
+    </view>
+  </block>
+</view>

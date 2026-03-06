@@ -1,43 +1,56 @@
 /**
  * Douyin publish script.
- * Uses OpenClaw browser CLI helpers.
+ *
+ * Uses OpenClaw ref-based browser automation.
+ * All actions use snapshot refs, not CSS selectors.
  */
 
 async function publish(content, helpers) {
+  const log = helpers.log;
   try {
-    helpers.navigate("https://creator.douyin.com/creator-micro/content/upload");
+    log.info("douyin: navigating to upload page");
+    try { helpers.navigate("https://creator.douyin.com/creator-micro/content/upload"); } catch (e) { log.warn("douyin: nav timeout (ok):", e.message); }
     await helpers.sleep(5000);
 
+    if (helpers.isLoginPage()) {
+      return { success: false, error: "未登录抖音，请先登录" };
+    }
+
+    // Upload video
     if (content.mediaUrl && content.contentType === "VIDEO") {
+      log.info("douyin: uploading video file");
       try {
-        helpers.upload('input[type="file"]', content.mediaUrl);
+        helpers.upload(content.mediaUrl);
+        await helpers.sleep(2000);
+        const clicked = helpers.findAndClick(["上传视频", "选择文件", "点击上传", "拖拽上传"]);
+        if (!clicked) log.warn("douyin: could not find upload trigger");
         await helpers.sleep(15000);
-      } catch {}
+      } catch (e) { log.warn("douyin: upload error:", e.message); }
     }
 
-    const titleText = content.title.substring(0, 55);
-    try {
-      helpers.fill('input[placeholder*="标题"], [class*="caption"] [contenteditable="true"]', titleText);
-    } catch {
-      try { helpers.type('[contenteditable="true"]', titleText); } catch {}
+    // Fill title/caption
+    const titleText = (content.title || "").substring(0, 55);
+    if (titleText) {
+      log.info("douyin: filling title");
+      if (!helpers.findAndFill(["标题", "作品标题", "添加作品描述"], titleText)) {
+        helpers.findAndType(["标题", "作品标题", "添加作品描述"], titleText);
+      }
     }
 
+    // Add hashtags
     for (const tag of (content.tags || []).slice(0, 5)) {
-      try {
-        helpers.type('[class*="tag"] input, [class*="hashtag"] input', "#" + tag);
-        helpers.exec("press Enter");
-        await helpers.sleep(500);
-      } catch { break; }
+      if (!helpers.findAndType(["话题", "添加话题", "#"], "#" + tag)) break;
+      helpers.press("Enter");
+      await helpers.sleep(500);
     }
 
-    try { helpers.screenshot(); } catch {}
+    try { helpers.screenshot(); } catch (e) { log.warn("douyin: screenshot failed:", e.message); }
 
-    try {
-      helpers.click('button:has-text("发布"), [class*="publish"], [class*="submit"]');
-      await helpers.sleep(5000);
-    } catch {
+    log.info("douyin: clicking publish button");
+    if (!helpers.findAndClick(["发布", "发布作品"])) {
       return { success: false, error: "无法找到发布按钮" };
     }
+    await helpers.sleep(5000);
 
     return { success: true, note: "抖音发布流程已执行" };
   } catch (err) {

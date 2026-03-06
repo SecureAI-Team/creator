@@ -71,6 +71,8 @@ export const GET = auth(async function GET(req) {
       accountName: true,
       status: true,
       lastChecked: true,
+      group: true,
+      labels: true,
     },
   });
 

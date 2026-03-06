@@ -880,6 +880,44 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
         }
       }
     },
+    onComments: async (commandParts) => {
+      const { collectComments, replyToComment } = require("./platform-scripts");
+      const sysNode = findSystemNode();
+      const ocPath = getOpenClawPath();
+      const wsDir = getWorkspaceDir();
+      if (!sysNode || !fs.existsSync(ocPath)) {
+        throw new Error("OpenClaw or system Node.js not available");
+      }
+      const collectorLog = logger.createTaggedLogger("Comments");
+      const ctx = { systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir, log: collectorLog };
+
+      if (commandParts.startsWith("reply ")) {
+        const payload = JSON.parse(commandParts.substring(6));
+        return await replyToComment(payload.platform, payload.externalId, payload.replyBody, ctx, payload.accountId || "default");
+      }
+
+      const targetPlatform = commandParts || "all";
+      if (targetPlatform === "all") {
+        const platforms = ["bilibili", "douyin", "xiaohongshu", "weixin-mp", "weixin-channels", "kuaishou", "zhihu", "weibo", "toutiao"];
+        const results = {};
+        for (const p of platforms) {
+          try { results[p] = await collectComments(p, ctx); } catch (e) { results[p] = { success: false, error: e.message }; }
+        }
+        return { success: true, results };
+      }
+      return await collectComments(targetPlatform, ctx);
+    },
+    onTrending: async (platforms) => {
+      const { collectTrending } = require("./platform-scripts");
+      const sysNode = findSystemNode();
+      const ocPath = getOpenClawPath();
+      const wsDir = getWorkspaceDir();
+      if (!sysNode || !fs.existsSync(ocPath)) {
+        throw new Error("OpenClaw or system Node.js not available");
+      }
+      const collectorLog = logger.createTaggedLogger("Trending");
+      return await collectTrending({ systemNode: sysNode, openclawPath: ocPath, workspaceDir: wsDir, log: collectorLog }, platforms);
+    },
     logger: logger.createTaggedLogger("Bridge"),
   });
   const ok = await bridgeInstance.connect(token);

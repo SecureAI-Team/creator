@@ -25,6 +25,7 @@ export async function GET(
         publishRecords: {
           orderBy: { createdAt: "desc" },
         },
+        adaptations: true,
       },
     });
 

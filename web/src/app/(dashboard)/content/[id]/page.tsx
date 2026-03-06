@@ -18,10 +18,12 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  RefreshCw,
+  CalendarClock,
 } from "lucide-react";
 
 type ContentStatus = "DRAFT" | "ADAPTED" | "REVIEWING" | "PUBLISHING" | "PUBLISHED" | "FAILED";
-type PublishStatus = "PENDING" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+type PublishStatus = "PENDING" | "PUBLISHING" | "PUBLISHED" | "FAILED" | "SCHEDULED";
 
 interface PublishRecord {
   id: string;
@@ -30,6 +32,7 @@ interface PublishRecord {
   platformUrl?: string;
   publishedAt?: string;
   errorMessage?: string;
+  scheduledAt?: string;
   views: number;
   likes: number;
   comments: number;
@@ -73,6 +76,7 @@ const publishStatusIcon: Record<PublishStatus, { icon: typeof CheckCircle2; colo
   PUBLISHING: { icon: Loader2, color: "text-violet-500" },
   PUBLISHED: { icon: CheckCircle2, color: "text-emerald-500" },
   FAILED: { icon: XCircle, color: "text-red-500" },
+  SCHEDULED: { icon: CalendarClock, color: "text-amber-500" },
 };
 
 const PLATFORMS = [
@@ -97,6 +101,7 @@ export default function ContentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [retryingPlatform, setRetryingPlatform] = useState<string | null>(null);
 
   // Edit form state
   const [title, setTitle] = useState("");
@@ -112,10 +117,15 @@ export default function ContentDetailPage() {
 
   // Adapt state
   const [adapting, setAdapting] = useState<string | null>(null);
-  const [adaptResult, setAdaptResult] = useState<Record<string, { title: string; body: string; tags: string[] }>>({});
+  const [adaptResult, setAdaptResult] = useState<
+    Record<string, { title: string; body: string; tags: string[]; coverUrl?: string; updatedAt?: string }>
+  >({});
 
-  const fetchItem = useCallback(async () => {
-    setLoading(true);
+  // Publish state: scheduled publishing
+  const [scheduledAt, setScheduledAt] = useState<string>("");
+
+  const fetchItem = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/content/${contentId}`);
       if (res.ok) {
@@ -129,7 +139,34 @@ export default function ContentDetailPage() {
     } catch {
       // ignore
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
+  }, [contentId]);
+
+  const fetchAdaptations = useCallback(async () => {
+    if (!contentId) return;
+    try {
+      const res = await fetch(`/api/content/${contentId}/adapt`);
+      if (res.ok) {
+        const data = await res.json();
+        const adaptations = data.adaptations || {};
+        setAdaptResult(
+          Object.fromEntries(
+            Object.entries(adaptations).map(([platform, val]) => [
+              platform,
+              {
+                title: (val as { title?: string }).title ?? "",
+                body: (val as { body?: string }).body ?? "",
+                tags: ((val as { tags?: string[] }).tags ?? []),
+                coverUrl: (val as { coverUrl?: string }).coverUrl,
+                updatedAt: (val as { updatedAt?: string }).updatedAt,
+              },
+            ])
+          )
+        );
+      }
+    } catch {
+      // ignore
+    }
   }, [contentId]);
 
   // Fetch connected platforms and user publish mode
@@ -165,6 +202,23 @@ export default function ContentDetailPage() {
   useEffect(() => {
     fetchItem();
   }, [fetchItem]);
+
+  // Load saved adaptations when content is loaded
+  useEffect(() => {
+    if (item) {
+      fetchAdaptations();
+    }
+  }, [item?.id, fetchAdaptations]);
+
+  // Auto-poll publish status when any record is PENDING or PUBLISHING
+  const hasPendingOrPublishing = item?.publishRecords?.some(
+    (r) => r.status === "PENDING" || r.status === "PUBLISHING"
+  );
+  useEffect(() => {
+    if (!hasPendingOrPublishing) return;
+    const interval = setInterval(() => fetchItem(true), 5000);
+    return () => clearInterval(interval);
+  }, [hasPendingOrPublishing, fetchItem]);
 
   const handleSave = async () => {
     if (!item) return;
@@ -210,25 +264,43 @@ export default function ContentDetailPage() {
     }
   };
 
-  const doPublish = async () => {
-    if (!item || selectedPlatforms.length === 0) return;
+  const doPublish = async (platforms?: string[]) => {
+    const targetPlatforms = platforms ?? selectedPlatforms;
+    if (!item || targetPlatforms.length === 0) return;
     setShowConfirm(false);
     setPublishing(true);
     try {
+      const body: { platforms: string[]; confirmed: boolean; scheduledAt?: string } = {
+        platforms: targetPlatforms,
+        confirmed: true,
+      };
+      if (scheduledAt) {
+        const at = new Date(scheduledAt).getTime();
+        if (at > Date.now()) {
+          body.scheduledAt = new Date(scheduledAt).toISOString();
+        }
+      }
       const res = await fetch(`/api/content/${item.id}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platforms: selectedPlatforms, confirmed: true }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         // Refresh to get updated publish records
         setTimeout(fetchItem, 1000);
-        setSelectedPlatforms([]);
+        if (!platforms) setSelectedPlatforms([]);
       }
     } catch {
       // ignore
     }
     setPublishing(false);
+  };
+
+  const handleRetryPublish = async (platform: string) => {
+    if (!item) return;
+    setRetryingPlatform(platform);
+    await doPublish([platform]);
+    setRetryingPlatform(null);
   };
 
   const handleAdapt = async (platform: string) => {
@@ -381,25 +453,44 @@ export default function ContentDetailPage() {
                 );
               })}
             </div>
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-gray-400">
-                {selectedPlatforms.length > 0
-                  ? `已选择 ${selectedPlatforms.length} 个平台`
-                  : "请选择要发布的平台"}
-              </span>
-              <Button
-                size="sm"
-                className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
-                onClick={handlePublishClick}
-                disabled={publishing || selectedPlatforms.length === 0}
-              >
-                {publishing ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-                ) : (
-                  <Send className="h-4 w-4 mr-1.5" />
+            <div className="flex flex-col gap-3 pt-2">
+              <div className="flex items-center gap-4">
+                <label className="text-xs font-medium text-gray-500">发布时间</label>
+                <input
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                  className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                {scheduledAt && new Date(scheduledAt).getTime() > Date.now() && (
+                  <span className="text-xs text-amber-600">定时发布</span>
                 )}
-                {publishMode === "manual" ? "审核并发布" : "发布到选中平台"}
-              </Button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400">
+                  {selectedPlatforms.length > 0
+                    ? `已选择 ${selectedPlatforms.length} 个平台`
+                    : "请选择要发布的平台"}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">
+                    {scheduledAt && new Date(scheduledAt).getTime() > Date.now() ? "定时发布" : "立即发布"}
+                  </span>
+                  <Button
+                    size="sm"
+                    className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
+                    onClick={handlePublishClick}
+                    disabled={publishing || selectedPlatforms.length === 0}
+                  >
+                    {publishing ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                    ) : (
+                      <Send className="h-4 w-4 mr-1.5" />
+                    )}
+                    {publishMode === "manual" ? "审核并发布" : "发布到选中平台"}
+                  </Button>
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -486,6 +577,24 @@ export default function ContentDetailPage() {
                     )}
                   </div>
                   <StatusIcon className={`h-4 w-4 ${psi.color} ${record.status === "PUBLISHING" ? "animate-spin" : ""}`} />
+                  {record.status === "FAILED" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-lg h-7 text-xs border-red-200 text-red-600 hover:bg-red-50"
+                      onClick={() => handleRetryPublish(record.platform)}
+                      disabled={!!retryingPlatform}
+                    >
+                      {retryingPlatform === record.platform ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <>
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          重试
+                        </>
+                      )}
+                    </Button>
+                  )}
                   {record.platformUrl && (
                     <a href={record.platformUrl} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-4 w-4 text-gray-400 hover:text-gray-600" />

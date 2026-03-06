@@ -37,6 +37,22 @@ model User {
   cronJobs           UserCronJob[]
   telegramBinding    TelegramBinding?
   platformMetrics    PlatformMetrics[]
+  platformMetricsRaw PlatformMetricsRaw[]
+  contentPerformance ContentPerformance[]
+  insightRecords     InsightRecord[]
+  auditLogs          AuditLog[]
+  comments           Comment[]
+  autoReplyRules     AutoReplyRule[]
+  mediaItems         MediaItem[]
+  teamMemberships    TeamMember[]
+  ownedTeams         Team[]
+  trends             Trend[]
+  canonicalMetrics   CanonicalMetrics[]
+  topics             Topic[]
+  accountProfiles    AccountProfile[]
+  subscription       Subscription?
+  usageRecords       UsageRecord[]
+  taskExecutions     TaskExecution[]
 
   @@map("users")
 }
@@ -134,6 +150,8 @@ model PlatformConnection {
   lastError   String?
   profilePort Int?     // CDP port assigned to this user's browser profile
   cookieData  String?  @db.Text // encrypted cookie backup
+  group       String?  // account group for batch operations
+  labels      String[] // custom labels for filtering
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -174,10 +192,33 @@ model ToolConfig {
 // Content Items
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Topic & Variant (content entity hierarchy)
+// ---------------------------------------------------------------------------
+
+model Topic {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  description String? @db.Text
+  tags   String[]
+  contentItems ContentItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("topics")
+}
+
 model ContentItem {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  topicId     String?
+  topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
   title       String
   contentType ContentType
@@ -188,12 +229,52 @@ model ContentItem {
   tags        String[]      // PostgreSQL array
   platforms   String[]      // target platforms
 
-  publishRecords PublishRecord[]
+  publishRecords     PublishRecord[]
+  adaptations        ContentAdaptation[]
+  contentPerformance ContentPerformance[]
+  variants           ContentVariant[]
+  platformPosts      PlatformPost[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("content_items")
+}
+
+model ContentVariant {
+  id            String @id @default(cuid())
+  contentItemId String
+  contentItem   ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  variantType   String   // "title_ab", "cover_ab", "body_short", "body_long"
+  label         String   // human-readable variant name e.g. "A/B 标题 B"
+  title         String?
+  body          String?  @db.Text
+  coverUrl      String?
+  tags          String[]
+
+  platformPosts PlatformPost[]
+
+  createdAt DateTime @default(now())
+
+  @@index([contentItemId])
+  @@map("content_variants")
+}
+
+model ContentAdaptation {
+  id        String @id @default(cuid())
+  contentId String
+  content   ContentItem @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  platform  String
+  title     String
+  body      String   @db.Text
+  tags      String[]
+  coverUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contentId, platform])
+  @@map("content_adaptations")
 }
 
 enum ContentType {
@@ -218,7 +299,9 @@ model PublishRecord {
   contentItem   ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
 
   platform      String
+  accountId     String    @default("default")
   status        PublishStatus @default(PENDING)
+  scheduledAt   DateTime?
   platformUrl   String?
   publishedAt   DateTime?
   errorMessage  String?
@@ -233,15 +316,72 @@ model PublishRecord {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([contentItemId, platform])
+  @@unique([contentItemId, platform, accountId])
   @@map("publish_records")
 }
 
 enum PublishStatus {
   PENDING
+  SCHEDULED
   PUBLISHING
   PUBLISHED
   FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Platform Post (external post entity linking content to platform)
+// ---------------------------------------------------------------------------
+
+model PlatformPost {
+  id            String @id @default(cuid())
+  userId        String
+  contentItemId String
+  contentItem   ContentItem    @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+  variantId     String?
+  variant       ContentVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  platform      String
+  accountId     String @default("default")
+  platformPostId String?  // external ID on the platform
+  platformUrl    String?
+  status         String  @default("active") // active, deleted, hidden
+
+  publishedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([contentItemId, platform, accountId])
+  @@index([userId, platform])
+  @@map("platform_posts")
+}
+
+// ---------------------------------------------------------------------------
+// Account Profile (enriched platform account metadata)
+// ---------------------------------------------------------------------------
+
+model AccountProfile {
+  id          String @id @default(cuid())
+  userId      String
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform    String
+  accountId   String @default("default")
+
+  displayName  String?
+  avatarUrl    String?
+  bio          String? @db.Text
+  profileUrl   String?
+  followerCount Int   @default(0)
+  followingCount Int  @default(0)
+  verified     Boolean @default(false)
+  category     String?
+  region       String?
+
+  lastSyncedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, platform, accountId])
+  @@map("account_profiles")
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +415,148 @@ model PlatformMetrics {
 }
 
 // ---------------------------------------------------------------------------
+// Platform Metrics Raw (preserves original collector response)
+// ---------------------------------------------------------------------------
+
+model PlatformMetricsRaw {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform  String
+  accountId String   @default("default")
+  date      DateTime @db.Date
+
+  snapshot  Json     // full collector response (all fields as returned)
+  source    String   @default("collector") // "collector" | "api" | "manual"
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, platform, accountId, date])
+  @@index([userId, platform])
+  @@map("platform_metrics_raw")
+}
+
+// ---------------------------------------------------------------------------
+// Canonical Metrics (unified normalized layer across all platforms)
+// ---------------------------------------------------------------------------
+
+model CanonicalMetrics {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform    String
+  accountId   String   @default("default")
+  date        DateTime @db.Date
+
+  exposure       Int    @default(0) // impressions / recommendations
+  clicks         Int    @default(0) // profile visits / click-throughs
+  plays          Int    @default(0) // video views / article reads
+  completions    Int    @default(0) // watch completion / full reads
+  completionRate Float? // plays > 0 ? completions / plays : null
+  likes          Int    @default(0)
+  comments       Int    @default(0)
+  shares         Int    @default(0)
+  saves          Int    @default(0) // bookmarks / favorites
+  engagementRate Float? // (likes+comments+shares) / max(plays,1)
+  followers      Int    @default(0) // current follower count
+  followerDelta  Int    @default(0) // net change since previous snapshot
+  contentCount   Int    @default(0)
+  contentDelta   Int    @default(0) // net new content since previous snapshot
+  watchTime      Int    @default(0) // total seconds (video platforms)
+  revenue        Float  @default(0) // estimated revenue if available
+
+  normalizedAt DateTime @default(now())
+
+  @@unique([userId, platform, accountId, date])
+  @@index([userId, platform, date])
+  @@map("canonical_metrics")
+}
+
+// ---------------------------------------------------------------------------
+// Content Performance (per-post metrics linked to ContentItem)
+// ---------------------------------------------------------------------------
+
+model ContentPerformance {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentItemId String
+  contentItem   ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  platform      String
+  accountId     String   @default("default")
+  platformPostId String? // external post ID on the platform
+  platformUrl    String?
+
+  views         Int      @default(0)
+  likes         Int      @default(0)
+  comments      Int      @default(0)
+  shares        Int      @default(0)
+  saves         Int      @default(0) // bookmarks / favorites
+  watchTime     Int      @default(0) // total seconds for video
+  engagementRate Float?  // computed: (likes+comments+shares) / views
+
+  fetchedAt     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([contentItemId, platform, accountId])
+  @@index([userId, platform])
+  @@map("content_performance")
+}
+
+// ---------------------------------------------------------------------------
+// Insight Records (rule-based / LLM-generated diagnostics)
+// ---------------------------------------------------------------------------
+
+enum InsightSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model InsightRecord {
+  id        String          @id @default(cuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      String          // e.g. "title_too_long", "low_engagement", "no_adaptation"
+  severity  InsightSeverity @default(INFO)
+  platform  String?         // relevant platform, or null for cross-platform
+  message   String          @db.Text
+  data      Json?           // structured payload for the insight
+
+  dismissed Boolean         @default(false)
+
+  generatedAt DateTime      @default(now())
+  expiresAt   DateTime?     // auto-expire stale insights
+
+  @@index([userId, dismissed])
+  @@map("insight_records")
+}
+
+// ---------------------------------------------------------------------------
+// Audit Log (tracks key user operations)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  action   String   // e.g. "publish", "data_refresh", "login", "content_create", "content_delete"
+  target   String?  // e.g. contentItem ID, platform key
+  metadata Json?    // additional context
+  ip       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
 // Cron Jobs (per user)
 // ---------------------------------------------------------------------------
 
@@ -297,6 +579,149 @@ model UserCronJob {
 }
 
 // ---------------------------------------------------------------------------
+// Team Collaboration
+// ---------------------------------------------------------------------------
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  inviteCode  String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     TeamMember[]
+  invites     TeamInvite[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     TeamRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  EDITOR
+  MEMBER
+}
+
+model TeamInvite {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  email     String?
+  code      String   @unique
+  role      TeamRole @default(MEMBER)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@map("team_invites")
+}
+
+// ---------------------------------------------------------------------------
+// Comments & Auto-Reply
+// ---------------------------------------------------------------------------
+
+model Comment {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform     String
+  accountId    String   @default("default")
+  contentTitle String?
+  author       String
+  authorAvatar String?
+  body         String   @db.Text
+  commentedAt  DateTime
+  replied      Boolean  @default(false)
+  replyBody    String?  @db.Text
+  repliedAt    DateTime?
+  externalId   String?
+  fetchedAt    DateTime @default(now())
+
+  @@index([userId, platform])
+  @@map("comments")
+}
+
+model AutoReplyRule {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyword  String
+  reply    String  @db.Text
+  enabled  Boolean @default(true)
+  platform String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("auto_reply_rules")
+}
+
+// ---------------------------------------------------------------------------
+// Media Library
+// ---------------------------------------------------------------------------
+
+model MediaItem {
+  id       String    @id @default(cuid())
+  userId   String
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename String
+  url      String
+  type     MediaType
+  size     Int
+  width    Int?
+  height   Int?
+  duration Int?
+  tags     String[]
+  folder   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, type])
+  @@map("media_items")
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+// ---------------------------------------------------------------------------
+// Trending Topics
+// ---------------------------------------------------------------------------
+
+model Trend {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform String
+  rank     Int
+  title    String
+  heat     Float  @default(0)
+
+  collectedAt DateTime @default(now())
+
+  @@index([userId, platform])
+  @@index([collectedAt])
+  @@map("trends")
+}
+
+// ---------------------------------------------------------------------------
 // Telegram Binding
 // ---------------------------------------------------------------------------
 
@@ -312,4 +737,83 @@ model TelegramBinding {
   boundAt        DateTime @default(now())
 
   @@map("telegram_bindings")
+}
+
+// ---------------------------------------------------------------------------
+// Subscription / Billing / Quota
+// ---------------------------------------------------------------------------
+
+enum PlanTier {
+  FREE
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+model Subscription {
+  id     String   @id @default(cuid())
+  userId String   @unique
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan       PlanTier @default(FREE)
+  status     String   @default("active") // active, cancelled, past_due, trialing
+  billingCycle String @default("monthly") // monthly, yearly
+
+  // Quota limits (overridable per plan)
+  maxPlatforms    Int @default(3)
+  maxContentPerDay Int @default(5)
+  maxAiCallsPerDay Int @default(20)
+  maxStorageMb     Int @default(500)
+  maxTeamMembers   Int @default(1)
+  historyRetentionDays Int @default(30)
+  advancedInsights Boolean @default(false)
+  benchmarkAccess  Boolean @default(false)
+
+  trialEndsAt   DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("subscriptions")
+}
+
+model TaskExecution {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  taskType   String   // "publish", "data_refresh", "content_generate", "adapt", "comment_collect", "trend_collect"
+  status     String   @default("pending") // pending, running, completed, failed, cancelled
+  platform   String?
+  input      Json?    // task parameters
+  output     Json?    // task results
+  error      String?  @db.Text
+
+  startedAt  DateTime?
+  completedAt DateTime?
+  duration   Int?     // milliseconds
+
+  createdAt  DateTime @default(now())
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@map("task_executions")
+}
+
+model UsageRecord {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date      DateTime @db.Date
+  action    String   // "content_create", "ai_call", "data_refresh", "publish"
+  count     Int      @default(1)
+  metadata  Json?
+
+  @@unique([userId, date, action])
+  @@index([userId, date])
+  @@map("usage_records")
 }

@@ -1,0 +1,53 @@
+<view class="container">
+  <view class="header">
+    <text class="title">创作助手</text>
+    <text class="subtitle">移动工作台</text>
+  </view>
+
+  <block wx:if="{{!loggedIn}}">
+    <view class="login-card" bindtap="onLogin">
+      <text class="login-text">请先登录</text>
+    </view>
+  </block>
+
+  <block wx:else>
+    <view class="loading" wx:if="{{loading}}">
+      <text>加载中...</text>
+    </view>
+
+    <block wx:else>
+      <!-- Stats cards -->
+      <view class="stats-grid">
+        <view class="stat-card">
+          <text class="stat-value">{{overview.totals.views || 0}}</text>
+          <text class="stat-label">浏览量</text>
+        </view>
+        <view class="stat-card">
+          <text class="stat-value">{{overview.totals.likes || 0}}</text>
+          <text class="stat-label">点赞</text>
+        </view>
+        <view class="stat-card">
+          <text class="stat-value">{{overview.totals.comments || 0}}</text>
+          <text class="stat-label">评论</text>
+        </view>
+        <view class="stat-card" bindtap="goReview">
+          <text class="stat-value highlight">{{pendingCount}}</text>
+          <text class="stat-label">待审核</text>
+        </view>
+      </view>
+
+      <!-- Quick actions -->
+      <view class="actions">
+        <view class="action-btn" bindtap="goReview">
+          <text>待审核内容</text>
+        </view>
+        <view class="action-btn" bindtap="goDashboard">
+          <text>数据看板</text>
+        </view>
+        <view class="action-btn" bindtap="goInsights">
+          <text>智能洞察</text>
+        </view>
+      </view>
+    </block>
+  </block>
+</view>

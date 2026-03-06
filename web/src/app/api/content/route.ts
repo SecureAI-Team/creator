@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { audit } from "@/lib/audit";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -101,6 +102,8 @@ export const POST = auth(async function POST(req) {
     },
   });
 
+  audit({ userId, action: "content_create", target: item.id, metadata: { title: item.title } });
+
   return NextResponse.json(item, { status: 201 });
 }) as unknown as (req: Request) => Promise<Response>;
 
@@ -140,5 +143,39 @@ export const PUT = auth(async function PUT(req) {
     data: updateData,
   });
 
+  audit({ userId, action: "content_update", target: id });
+
   return NextResponse.json(updated);
+}) as unknown as (req: Request) => Promise<Response>;
+
+/**
+ * DELETE /api/content
+ * Delete a content item.
+ */
+export const DELETE = auth(async function DELETE(req) {
+  if (!req.auth?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const userId = req.auth.user.id;
+  const body = await req.json();
+  const { id } = body;
+
+  if (!id) {
+    return NextResponse.json({ error: "Missing id" }, { status: 400 });
+  }
+
+  const existing = await prisma.contentItem.findFirst({
+    where: { id, userId },
+  });
+
+  if (!existing) {
+    return NextResponse.json({ error: "Content not found" }, { status: 404 });
+  }
+
+  await prisma.contentItem.delete({ where: { id } });
+
+  audit({ userId, action: "content_delete", target: id, metadata: { title: existing.title } });
+
+  return NextResponse.json({ success: true });
 }) as unknown as (req: Request) => Promise<Response>;

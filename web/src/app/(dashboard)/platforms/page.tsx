@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, RefreshCw, MonitorPlay, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ExternalLink, RefreshCw, MonitorPlay, Loader2, Plus, X, Tag, Filter } from "lucide-react";
 
 const PLATFORMS = [
   { key: "bilibili", name: "哔哩哔哩", initial: "B", color: "from-[#00A1D6] to-[#0091c2]", url: "https://member.bilibili.com", types: ["视频", "图文"] },
@@ -19,6 +20,15 @@ const PLATFORMS = [
 
 type ConnectionStatus = "CONNECTED" | "EXPIRED" | "DISCONNECTED";
 
+interface PlatformAccount {
+  accountId: string;
+  accountName?: string;
+  status: ConnectionStatus;
+  lastChecked?: string;
+  group?: string;
+  labels?: string[];
+}
+
 interface PlatformState {
   status: ConnectionStatus;
   lastChecked?: string;
@@ -32,6 +42,7 @@ const statusConfig: Record<string, { label: string; dot: string; bg: string; tex
 
 export default function PlatformsPage() {
   const [connections, setConnections] = useState<Record<string, PlatformState>>({});
+  const [platformAccounts, setPlatformAccounts] = useState<Record<string, PlatformAccount[]>>({});
   const [loginLoading, setLoginLoading] = useState<string | null>(null);
   const [loginHints, setLoginHints] = useState<Record<string, string>>({});
   const [checkLoading, setCheckLoading] = useState<string | null>(null);
@@ -40,6 +51,11 @@ export default function PlatformsPage() {
   const [localBrowserOpened, setLocalBrowserOpened] = useState<Record<string, boolean>>({});
   const loginTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
   const fallbackOpenedRef = useRef<Record<string, boolean>>({});
+  const [addingAccount, setAddingAccount] = useState<string | null>(null);
+  const [newAccountName, setNewAccountName] = useState("");
+  const [groupFilter, setGroupFilter] = useState<string>("all");
+  const [statusFilterVal, setStatusFilterVal] = useState<string>("all");
+  const [labelFilter, setLabelFilter] = useState<string>("all");
 
   useEffect(() => {
     async function loadPlatforms() {
@@ -51,13 +67,29 @@ export default function PlatformsPage() {
         const data = await dataRes.json();
         if (data.platforms) {
           const map: Record<string, PlatformState> = {};
+          const acctMap: Record<string, PlatformAccount[]> = {};
           for (const p of data.platforms) {
-            map[p.platformKey] = {
+            const key = p.platformKey;
+            const acctId = p.accountId || "default";
+            // Primary connection (for backward compat, keep "default" in connections map)
+            if (acctId === "default") {
+              map[key] = {
+                status: p.status as ConnectionStatus,
+                lastChecked: p.lastChecked,
+              };
+            }
+            if (!acctMap[key]) acctMap[key] = [];
+            acctMap[key].push({
+              accountId: acctId,
+              accountName: p.accountName,
               status: p.status as ConnectionStatus,
               lastChecked: p.lastChecked,
-            };
+              group: p.group,
+              labels: p.labels,
+            });
           }
           setConnections(map);
+          setPlatformAccounts(acctMap);
         }
         const agentData = agentRes.ok ? await agentRes.json() : {};
         setHasBridge(!!agentData?.hasBridge);
@@ -68,6 +100,70 @@ export default function PlatformsPage() {
     }
     loadPlatforms();
   }, []);
+
+  const handleAddAccount = async (platformKey: string) => {
+    if (!newAccountName.trim()) return;
+    const accountId = newAccountName.trim().toLowerCase().replace(/\s+/g, "-");
+    try {
+      const res = await fetch(`/api/platforms/${platformKey}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, accountName: newAccountName.trim() }),
+      });
+      if (res.ok) {
+        setPlatformAccounts((prev) => ({
+          ...prev,
+          [platformKey]: [
+            ...(prev[platformKey] || []),
+            { accountId, accountName: newAccountName.trim(), status: "DISCONNECTED" },
+          ],
+        }));
+      }
+    } catch { /* ignore */ }
+    setAddingAccount(null);
+    setNewAccountName("");
+  };
+
+  const [editingGroupKey, setEditingGroupKey] = useState<string | null>(null);
+  const [editGroupValue, setEditGroupValue] = useState("");
+  const [editingLabelsKey, setEditingLabelsKey] = useState<string | null>(null);
+  const [editLabelsValue, setEditLabelsValue] = useState("");
+
+  const updateAccountMeta = async (
+    platformKey: string,
+    accountId: string,
+    updates: { group?: string | null; labels?: string[]; accountName?: string }
+  ) => {
+    try {
+      const res = await fetch(`/api/platforms/${platformKey}/account`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, ...updates }),
+      });
+      if (res.ok) {
+        setPlatformAccounts((prev) => {
+          const list = (prev[platformKey] || []).map((a) =>
+            a.accountId === accountId ? { ...a, ...updates } : a
+          );
+          return { ...prev, [platformKey]: list };
+        });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const saveGroup = (platformKey: string, accountId: string) => {
+    updateAccountMeta(platformKey, accountId, { group: editGroupValue.trim() || null });
+    setEditingGroupKey(null);
+  };
+
+  const saveLabels = (platformKey: string, accountId: string) => {
+    const labels = editLabelsValue
+      .split(/[,，\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    updateAccountMeta(platformKey, accountId, { labels });
+    setEditingLabelsKey(null);
+  };
 
   const getStatus = (key: string): PlatformState =>
     connections[key] || { status: "DISCONNECTED" };
@@ -269,6 +365,33 @@ export default function PlatformsPage() {
     );
   }
 
+  const allAccounts = Object.values(platformAccounts).flat();
+
+  const allGroups = Array.from(
+    new Set(allAccounts.map((a) => a.group).filter(Boolean) as string[])
+  );
+
+  const allLabels = Array.from(
+    new Set(allAccounts.flatMap((a) => a.labels || []).filter(Boolean))
+  );
+
+  // Filter platforms based on group/status
+  const filteredPlatforms = PLATFORMS.filter((platform) => {
+    const state = getStatus(platform.key);
+    const accounts = platformAccounts[platform.key] || [];
+
+    if (statusFilterVal !== "all" && state.status !== statusFilterVal) return false;
+    if (groupFilter !== "all") {
+      const hasGroup = accounts.some((a) => a.group === groupFilter);
+      if (!hasGroup) return false;
+    }
+    if (labelFilter !== "all") {
+      const hasLabel = accounts.some((a) => a.labels?.includes(labelFilter));
+      if (!hasLabel) return false;
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-8">
       <div>
@@ -278,10 +401,60 @@ export default function PlatformsPage() {
         </p>
       </div>
 
+      {/* Filter bar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <Filter className="h-4 w-4" />
+          筛选
+        </div>
+        <select
+          value={statusFilterVal}
+          onChange={(e) => setStatusFilterVal(e.target.value)}
+          className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        >
+          <option value="all">全部状态</option>
+          <option value="CONNECTED">已连接</option>
+          <option value="EXPIRED">已过期</option>
+          <option value="DISCONNECTED">未连接</option>
+        </select>
+        {allGroups.length > 0 && (
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          >
+            <option value="all">全部分组</option>
+            {allGroups.map((g) => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
+        )}
+        {allLabels.length > 0 && (
+          <select
+            value={labelFilter}
+            onChange={(e) => setLabelFilter(e.target.value)}
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          >
+            <option value="all">全部标签</option>
+            {allLabels.map((l) => (
+              <option key={l} value={l}>{l}</option>
+            ))}
+          </select>
+        )}
+        <div className="flex-1" />
+        <span className="text-xs text-gray-400">
+          {filteredPlatforms.length} 个平台
+          {Object.values(platformAccounts).flat().length > 0 &&
+            ` / ${Object.values(platformAccounts).flat().length} 个账号`}
+        </span>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {PLATFORMS.map((platform) => {
+        {filteredPlatforms.map((platform) => {
           const state = getStatus(platform.key);
           const sc = statusConfig[state.status] || statusConfig.DISCONNECTED;
+          const accounts = platformAccounts[platform.key] || [];
+          const extraAccounts = accounts.filter((a) => a.accountId !== "default");
           return (
             <div
               key={platform.key}
@@ -391,6 +564,193 @@ export default function PlatformsPage() {
                       </p>
                     )}
                   </div>
+                )}
+              </div>
+
+              {/* Group & labels for default account */}
+              {(() => {
+                const defaultAcct = accounts.find((a) => a.accountId === "default");
+                const acctKey = `${platform.key}:default`;
+                return (
+                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-gray-400">分组:</span>
+                      {editingGroupKey === acctKey ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            value={editGroupValue}
+                            onChange={(e) => setEditGroupValue(e.target.value)}
+                            placeholder="输入分组名"
+                            className="h-5 text-[10px] w-24 rounded border-gray-200 px-1.5"
+                            onKeyDown={(e) => e.key === "Enter" && saveGroup(platform.key, "default")}
+                            autoFocus
+                          />
+                          <button onClick={() => saveGroup(platform.key, "default")} className="text-[10px] text-blue-600 hover:text-blue-700">保存</button>
+                          <button onClick={() => setEditingGroupKey(null)} className="text-[10px] text-gray-400 hover:text-gray-600">取消</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setEditingGroupKey(acctKey); setEditGroupValue(defaultAcct?.group || ""); }}
+                          className="text-[10px] text-gray-600 hover:text-blue-600 transition-colors"
+                        >
+                          {defaultAcct?.group ? (
+                            <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{defaultAcct.group}</span>
+                          ) : (
+                            <span className="text-gray-300">点击设置</span>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-gray-400">标签:</span>
+                      {defaultAcct?.labels?.map((label) => (
+                        <span key={label} className="inline-flex items-center gap-0.5 bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded">
+                          <Tag className="h-2.5 w-2.5" />
+                          {label}
+                        </span>
+                      ))}
+                      {editingLabelsKey === acctKey ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            value={editLabelsValue}
+                            onChange={(e) => setEditLabelsValue(e.target.value)}
+                            placeholder="用逗号分隔"
+                            className="h-5 text-[10px] w-28 rounded border-gray-200 px-1.5"
+                            onKeyDown={(e) => e.key === "Enter" && saveLabels(platform.key, "default")}
+                            autoFocus
+                          />
+                          <button onClick={() => saveLabels(platform.key, "default")} className="text-[10px] text-blue-600 hover:text-blue-700">保存</button>
+                          <button onClick={() => setEditingLabelsKey(null)} className="text-[10px] text-gray-400 hover:text-gray-600">取消</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditingLabelsKey(acctKey);
+                            setEditLabelsValue(defaultAcct?.labels?.join(", ") || "");
+                          }}
+                          className="text-[10px] text-gray-300 hover:text-blue-600 transition-colors"
+                        >
+                          +标签
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Extra accounts */}
+              {extraAccounts.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+                  {extraAccounts.map((acct) => {
+                    const acctSc = statusConfig[acct.status] || statusConfig.DISCONNECTED;
+                    const acctKey = `${platform.key}:${acct.accountId}`;
+                    return (
+                      <div key={acct.accountId} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-700 font-medium">{acct.accountName || acct.accountId}</span>
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${acctSc.bg} ${acctSc.text}`}>
+                              <span className={`w-1 h-1 rounded-full ${acctSc.dot}`} />
+                              {acctSc.label}
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs text-gray-400 hover:text-blue-600"
+                            onClick={() => handleLogin(platform.key)}
+                          >
+                            登录
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap pl-1">
+                          {acct.group && (
+                            <span className="bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0.5 rounded">{acct.group}</span>
+                          )}
+                          {acct.labels?.map((label) => (
+                            <span key={label} className="inline-flex items-center gap-0.5 bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded">
+                              <Tag className="h-2.5 w-2.5" />
+                              {label}
+                            </span>
+                          ))}
+                          {editingGroupKey === acctKey ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={editGroupValue}
+                                onChange={(e) => setEditGroupValue(e.target.value)}
+                                placeholder="分组"
+                                className="h-5 text-[10px] w-20 rounded border-gray-200 px-1.5"
+                                onKeyDown={(e) => e.key === "Enter" && saveGroup(platform.key, acct.accountId)}
+                                autoFocus
+                              />
+                              <button onClick={() => saveGroup(platform.key, acct.accountId)} className="text-[10px] text-blue-600">保存</button>
+                              <button onClick={() => setEditingGroupKey(null)} className="text-[10px] text-gray-400">取消</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setEditingGroupKey(acctKey); setEditGroupValue(acct.group || ""); }}
+                              className="text-[10px] text-gray-300 hover:text-blue-600"
+                            >
+                              {acct.group ? "改分组" : "+分组"}
+                            </button>
+                          )}
+                          {editingLabelsKey === acctKey ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={editLabelsValue}
+                                onChange={(e) => setEditLabelsValue(e.target.value)}
+                                placeholder="用逗号分隔"
+                                className="h-5 text-[10px] w-24 rounded border-gray-200 px-1.5"
+                                onKeyDown={(e) => e.key === "Enter" && saveLabels(platform.key, acct.accountId)}
+                                autoFocus
+                              />
+                              <button onClick={() => saveLabels(platform.key, acct.accountId)} className="text-[10px] text-blue-600">保存</button>
+                              <button onClick={() => setEditingLabelsKey(null)} className="text-[10px] text-gray-400">取消</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingLabelsKey(acctKey);
+                                setEditLabelsValue(acct.labels?.join(", ") || "");
+                              }}
+                              className="text-[10px] text-gray-300 hover:text-blue-600"
+                            >
+                              +标签
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Add account */}
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                {addingAccount === platform.key ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={newAccountName}
+                      onChange={(e) => setNewAccountName(e.target.value)}
+                      placeholder="账号名称"
+                      className="h-7 text-xs rounded-lg border-gray-200"
+                      onKeyDown={(e) => e.key === "Enter" && handleAddAccount(platform.key)}
+                    />
+                    <Button size="sm" className="h-7 px-2 rounded-lg text-xs" onClick={() => handleAddAccount(platform.key)}>
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 px-2 rounded-lg text-xs" onClick={() => { setAddingAccount(null); setNewAccountName(""); }}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setAddingAccount(platform.key)}
+                    className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-600 transition-colors"
+                  >
+                    <Plus className="h-3 w-3" />
+                    添加账号
+                  </button>
                 )}
               </div>
             </div>

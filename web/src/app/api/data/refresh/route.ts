@@ -1,6 +1,9 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { normalizeAndStore } from "@/lib/canonical";
 import { sendMessage } from "@/lib/openclaw";
+import { isWeChatNotifyEnabled, notifyAnomalyAlert, type NotifyConfig } from "@/lib/wechat-notify";
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
@@ -17,6 +20,8 @@ const ALL_COLLECTOR_PLATFORMS = [
   "weixin-channels",
   "kuaishou",
   "zhihu",
+  "weibo",
+  "toutiao",
 ];
 
 /**
@@ -119,7 +124,7 @@ export const POST = auth(async function POST(req) {
         }
 
         if (platformData && platformData.success) {
-          // Save metrics immediately to database
+          // Save canonical metrics
           await prisma.platformMetrics.upsert({
             where: {
               userId_platform_accountId_date: {
@@ -153,8 +158,41 @@ export const POST = auth(async function POST(req) {
             },
           });
 
+          // Preserve raw collector response in the raw layer
+          await prisma.platformMetricsRaw.upsert({
+            where: {
+              userId_platform_accountId_date: {
+                userId,
+                platform: platformKey,
+                accountId: acctId,
+                date: today,
+              },
+            },
+            update: {
+              snapshot: platformData as unknown as Prisma.InputJsonValue,
+              source: "collector",
+            },
+            create: {
+              userId,
+              platform: platformKey,
+              accountId: acctId,
+              date: today,
+              snapshot: platformData as unknown as Prisma.InputJsonValue,
+              source: "collector",
+            },
+          });
+
+          // Normalize into canonical metrics layer
+          normalizeAndStore(userId, platformKey, acctId, today, {
+            followers: platformData.followers,
+            totalViews: platformData.totalViews,
+            totalLikes: platformData.totalLikes,
+            totalComments: platformData.totalComments,
+            totalShares: platformData.totalShares,
+            contentCount: platformData.contentCount,
+          }).catch((e) => console.error(`[data/refresh] canonical normalize error for ${label}:`, e));
+
           // Auto-create PlatformConnection if it doesn't exist
-          // so subsequent refreshes and the dashboard know about this platform
           await prisma.platformConnection.upsert({
             where: {
               userId_platformKey_accountId: { userId, platformKey, accountId: acctId },
@@ -194,6 +232,35 @@ export const POST = auth(async function POST(req) {
     }
     if (errors.length > 0) {
       parts.push(`失败: ${errors.join("; ")}`);
+    }
+
+    audit({
+      userId,
+      action: "data_refresh",
+      metadata: { storedPlatforms, errors, requestedPlatform: requestedPlatform || "all" },
+    });
+
+    // Fire-and-forget: send WeChat anomaly alerts for failed platforms
+    if (errors.length > 0 && isWeChatNotifyEnabled()) {
+      const wechatAccount = await prisma.account.findFirst({
+        where: { userId, provider: "wechat" },
+        select: { providerAccountId: true },
+      }).catch(() => null);
+
+      if (wechatAccount) {
+        const config: NotifyConfig = {
+          openId: wechatAccount.providerAccountId,
+          baseUrl: process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_BASE_URL,
+        };
+        for (const err of errors.slice(0, 3)) {
+          const [platform] = err.split(":");
+          notifyAnomalyAlert(config, {
+            platform: platform.trim(),
+            type: "数据采集失败",
+            message: err,
+          }).catch(() => {});
+        }
+      }
     }
 
     return NextResponse.json({

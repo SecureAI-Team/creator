@@ -1,0 +1,8 @@
+[Unit]
+Description=Creator Publish Scheduler (runs every 5 minutes)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -sf -H "Authorization: Bearer ${CRON_SECRET}" http://127.0.0.1:3001/api/cron/publish-scheduler
+TimeoutStartSec=120

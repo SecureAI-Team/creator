@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, FileText, Video, Image, Music, Search, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, FileText, Video, Image, Music, Search, Loader2, ChevronLeft, ChevronRight, Trash2, Send, CheckSquare, Square, Sparkles } from "lucide-react";
 
 type ContentType = "all" | "TEXT" | "VIDEO" | "IMAGE" | "AUDIO";
 type ContentStatus = "DRAFT" | "ADAPTED" | "REVIEWING" | "PUBLISHING" | "PUBLISHED" | "FAILED";
@@ -63,6 +63,60 @@ export default function ContentPage() {
   const [totalPages, setTotalPages] = useState(1);
   const pageSize = 20;
 
+  // Batch selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [showNewMenu, setShowNewMenu] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === items.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(items.map((i) => i.id)));
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确定删除 ${selectedIds.size} 条内容？`)) return;
+    setBatchDeleting(true);
+    for (const id of selectedIds) {
+      try {
+        await fetch("/api/content", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+      } catch { /* ignore */ }
+    }
+    setSelectedIds(new Set());
+    setBatchDeleting(false);
+    fetchItems();
+  };
+
+  const handleCreateBlank = async () => {
+    setShowNewMenu(false);
+    try {
+      const res = await fetch("/api/content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "未命名内容", contentType: "TEXT" }),
+      });
+      if (res.ok) {
+        const item = await res.json();
+        router.push(`/content/${item.id}`);
+      }
+    } catch { /* ignore */ }
+  };
+
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
@@ -101,13 +155,47 @@ export default function ContentPage() {
             管理你的所有创作内容 {total > 0 && `(${total} 条)`}
           </p>
         </div>
-        <Button
-          className="gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
-          onClick={() => (window.location.href = "/chat?action=create")}
-        >
-          <Plus className="h-4 w-4" />
-          新建内容
-        </Button>
+        <div className="relative flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+              onClick={handleBatchDelete}
+              disabled={batchDeleting}
+            >
+              {batchDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              删除 ({selectedIds.size})
+            </Button>
+          )}
+          <div className="relative">
+            <Button
+              className="gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
+              onClick={() => setShowNewMenu(!showNewMenu)}
+            >
+              <Plus className="h-4 w-4" />
+              新建内容
+            </Button>
+            {showNewMenu && (
+              <div className="absolute right-0 top-full mt-1 w-48 rounded-xl bg-white border border-gray-200 shadow-lg py-1 z-10">
+                <button
+                  onClick={handleCreateBlank}
+                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <FileText className="h-4 w-4 text-gray-400" />
+                  空白创建
+                </button>
+                <button
+                  onClick={() => { setShowNewMenu(false); window.location.href = "/chat?action=create"; }}
+                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <Sparkles className="h-4 w-4 text-blue-500" />
+                  AI 创作
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -154,30 +242,48 @@ export default function ContentPage() {
         </div>
       ) : items.length > 0 ? (
         <div className="space-y-2">
+          {items.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-1">
+              <button onClick={toggleSelectAll} className="text-gray-400 hover:text-gray-600">
+                {selectedIds.size === items.length ? <CheckSquare className="h-4 w-4 text-blue-600" /> : <Square className="h-4 w-4" />}
+              </button>
+              <span className="text-xs text-gray-400">
+                {selectedIds.size > 0 ? `已选 ${selectedIds.size} 项` : "全选"}
+              </span>
+            </div>
+          )}
           {items.map((item) => {
             const tc = typeConfig[item.contentType];
             const sc = statusConfig[item.status];
             const Icon = tc.icon;
+            const selected = selectedIds.has(item.id);
             return (
               <div
                 key={item.id}
-                onClick={() => router.push(`/content/${item.id}`)}
                 className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-white p-4 hover:shadow-md hover:shadow-gray-100/80 transition-all cursor-pointer"
               >
-                <div className={`h-10 w-10 rounded-xl ${tc.bg} flex items-center justify-center`}>
-                  <Icon className={`h-5 w-5 ${tc.color}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-900 truncate">{item.title}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    {item.platforms.length > 0 ? item.platforms.join(", ") : "未指定平台"} &middot;{" "}
-                    {new Date(item.updatedAt).toLocaleDateString("zh-CN")}
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+                  className="text-gray-400 hover:text-gray-600 shrink-0"
+                >
+                  {selected ? <CheckSquare className="h-4 w-4 text-blue-600" /> : <Square className="h-4 w-4" />}
+                </button>
+                <div onClick={() => router.push(`/content/${item.id}`)} className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className={`h-10 w-10 rounded-xl ${tc.bg} flex items-center justify-center shrink-0`}>
+                    <Icon className={`h-5 w-5 ${tc.color}`} />
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-900 truncate">{item.title}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {item.platforms.length > 0 ? item.platforms.join(", ") : "未指定平台"} &middot;{" "}
+                      {new Date(item.updatedAt).toLocaleDateString("zh-CN")}
+                    </div>
+                  </div>
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                    {sc.label}
+                  </span>
                 </div>
-                <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
-                  {sc.label}
-                </span>
               </div>
             );
           })}

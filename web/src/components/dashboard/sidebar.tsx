@@ -14,6 +14,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  MessageCircle,
+  ImageIcon,
+  TrendingUp,
+  Users,
+  ListChecks,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
@@ -22,9 +27,14 @@ const navItems = [
   { href: "/overview", label: "概览", icon: LayoutDashboard },
   { href: "/platforms", label: "平台管理", icon: Globe },
   { href: "/content", label: "内容管理", icon: FileText },
+  { href: "/media", label: "素材库", icon: ImageIcon },
   { href: "/data", label: "数据分析", icon: BarChart3 },
+  { href: "/comments", label: "评论管理", icon: MessageCircle },
+  { href: "/trends", label: "热点追踪", icon: TrendingUp },
+  { href: "/tasks", label: "任务中心", icon: ListChecks },
   { href: "/tools", label: "AI 工具", icon: Wrench },
   { href: "/chat", label: "AI 对话", icon: MessageSquare },
+  { href: "/team", label: "团队协作", icon: Users },
   { href: "/settings", label: "设置", icon: Settings },
 ];
 

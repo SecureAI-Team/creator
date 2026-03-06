@@ -1,0 +1,39 @@
+<view class="container">
+  <view class="header">
+    <text class="title">待审核内容</text>
+    <text class="subtitle">{{total}} 条内容等待审核</text>
+  </view>
+
+  <view class="loading" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+
+  <view class="empty" wx:elif="{{items.length === 0}}">
+    <text>暂无待审核内容</text>
+  </view>
+
+  <block wx:else>
+    <view class="review-list">
+      <view class="review-card" wx:for="{{items}}" wx:key="id">
+        <view class="card-header">
+          <text class="card-title">{{item.title}}</text>
+          <text class="card-type">{{item.contentType}}</text>
+        </view>
+        <view class="card-body" wx:if="{{item.body}}">
+          <text class="card-excerpt">{{item.body}}</text>
+        </view>
+        <view class="card-meta">
+          <text>平台: {{item.platforms}}</text>
+        </view>
+        <view class="card-actions">
+          <button class="btn-approve" data-id="{{item.id}}" bindtap="onApprove">
+            通过
+          </button>
+          <button class="btn-reject" data-id="{{item.id}}" bindtap="onReject">
+            打回
+          </button>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>

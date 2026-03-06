@@ -1,0 +1,38 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/review/review",
+    "pages/dashboard/dashboard",
+    "pages/insights/insights"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#4F46E5",
+    "navigationBarTitleText": "创作助手",
+    "navigationBarTextStyle": "white"
+  },
+  "tabBar": {
+    "color": "#999999",
+    "selectedColor": "#4F46E5",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/review/review",
+        "text": "待审核"
+      },
+      {
+        "pagePath": "pages/dashboard/dashboard",
+        "text": "数据"
+      },
+      {
+        "pagePath": "pages/insights/insights",
+        "text": "洞察"
+      }
+    ]
+  },
+  "sitemapLocation": "sitemap.json"
+}

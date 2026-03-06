@@ -1,18 +1,12 @@
 /**
  * Bilibili publish script.
  *
- * Uses OpenClaw browser CLI to automate video/article publishing on bilibili.
- * NOTE: Element selectors need to be verified via `snapshot --interactive`
- * during actual testing, as bilibili's DOM changes frequently.
+ * Uses OpenClaw ref-based browser automation to publish video/article on bilibili.
+ * All actions use snapshot refs (e.g. "e12"), not CSS selectors.
  */
 
-/**
- * Publish content to bilibili.
- * @param {object} content - { title, body, mediaUrl, coverUrl, tags, contentType }
- * @param {object} helpers - { navigate, open, snapshot, click, type, fill, upload, screenshot, sleep }
- * @returns {Promise<{ success: boolean, platformUrl?: string, error?: string }>}
- */
 async function publish(content, helpers) {
+  const log = helpers.log;
   const isVideo = content.contentType === "VIDEO";
   return isVideo
     ? await publishVideo(content, helpers)
@@ -20,97 +14,109 @@ async function publish(content, helpers) {
 }
 
 async function publishVideo(content, helpers) {
+  const log = helpers.log;
   try {
-    // 1. Navigate to video upload page
-    helpers.navigate("https://member.bilibili.com/platform/upload/video/frame");
+    log.info("bilibili: navigating to video upload page");
+    try { helpers.navigate("https://member.bilibili.com/platform/upload/video/frame"); } catch (e) { log.warn("bilibili: nav timeout (ok):", e.message); }
     await helpers.sleep(5000);
 
-    // 2. Upload video if local file path is provided
+    if (helpers.isLoginPage()) {
+      return { success: false, error: "未登录 bilibili，请先登录" };
+    }
+
+    // Upload video file (arm upload before clicking trigger)
     if (content.mediaUrl) {
+      log.info("bilibili: uploading video file");
       try {
-        helpers.upload('input[type="file"]', content.mediaUrl);
-        await helpers.sleep(15000); // Wait for upload to progress
-      } catch {
-        // Upload may need manual intervention
+        helpers.upload(content.mediaUrl);
+        await helpers.sleep(2000);
+        // Click the upload area/button to trigger file chooser
+        const clicked = helpers.findAndClick(["上传视频", "选择文件", "拖拽上传", "upload"]);
+        if (!clicked) log.warn("bilibili: could not find upload trigger button");
+        await helpers.sleep(15000);
+      } catch (e) { log.warn("bilibili: upload error:", e.message); }
+    }
+
+    // Fill title
+    const titleText = (content.title || "").substring(0, 80);
+    if (titleText) {
+      log.info("bilibili: filling title");
+      if (!helpers.findAndFill(["标题", "视频标题", "title"], titleText)) {
+        helpers.findAndType(["标题", "视频标题", "title"], titleText);
       }
     }
 
-    // 3. Fill title (limit: 80 chars)
-    const titleText = content.title.substring(0, 80);
-    try {
-      helpers.fill('input[placeholder*="标题"], [class*="title"] input', titleText);
-    } catch {
-      try {
-        helpers.type('[contenteditable="true"]', titleText);
-      } catch {}
-    }
-
-    // 4. Fill description (limit: 2000 chars)
+    // Fill description
     if (content.body) {
       const desc = content.body.substring(0, 2000);
-      try {
-        helpers.fill('textarea[placeholder*="简介"], textarea[placeholder*="描述"]', desc);
-      } catch {
-        try {
-          helpers.type('[class*="desc"] [contenteditable="true"]', desc);
-        } catch {}
+      log.info("bilibili: filling description");
+      if (!helpers.findAndType(["简介", "描述", "视频简介", "description"], desc)) {
+        log.warn("bilibili: could not find description field");
       }
     }
 
-    // 5. Add tags (max 12)
+    // Add tags
     for (const tag of (content.tags || []).slice(0, 12)) {
-      try {
-        helpers.type('[class*="tag"] input, input[placeholder*="标签"]', tag);
-        helpers.exec('press Enter');
-        await helpers.sleep(500);
-      } catch {
-        break;
-      }
+      if (!helpers.findAndType(["标签", "添加标签", "tag"], tag)) break;
+      helpers.press("Enter");
+      await helpers.sleep(500);
     }
 
-    // 6. Screenshot for evidence
-    try { helpers.screenshot(); } catch {}
+    try { helpers.screenshot(); } catch (e) { log.warn("bilibili: screenshot failed:", e.message); }
 
-    // 7. Click publish
-    try {
-      helpers.click('button:has-text("投稿"), button:has-text("发布")');
-      await helpers.sleep(5000);
-    } catch {
-      return { success: false, error: "无法找到发布按钮" };
+    // Click publish
+    log.info("bilibili: clicking publish button");
+    if (!helpers.findAndClick(["投稿", "立即投稿", "发布"])) {
+      return { success: false, error: "无法找到投稿/发布按钮" };
     }
+    await helpers.sleep(5000);
 
-    return { success: true, note: "发布流程已执行，请在 bilibili 创作中心确认" };
+    return { success: true, note: "B站视频发布流程已执行，请在创作中心确认" };
   } catch (err) {
     return { success: false, error: `bilibili 视频发布失败: ${err.message}` };
   }
 }
 
 async function publishArticle(content, helpers) {
+  const log = helpers.log;
   try {
-    helpers.navigate("https://member.bilibili.com/platform/upload/text/edit");
+    log.info("bilibili: navigating to article editor");
+    try { helpers.navigate("https://member.bilibili.com/platform/upload/text/edit"); } catch (e) { log.warn("bilibili: nav timeout (ok):", e.message); }
     await helpers.sleep(5000);
 
-    const titleText = content.title.substring(0, 80);
-    try {
-      helpers.fill('input[placeholder*="标题"], [class*="title"] input', titleText);
-    } catch {}
+    if (helpers.isLoginPage()) {
+      return { success: false, error: "未登录 bilibili，请先登录" };
+    }
+
+    const titleText = (content.title || "").substring(0, 80);
+    if (titleText) {
+      log.info("bilibili: filling article title");
+      if (!helpers.findAndFill(["标题", "文章标题", "title"], titleText)) {
+        helpers.findAndType(["标题", "文章标题", "title"], titleText);
+      }
+    }
 
     if (content.body) {
-      try {
-        helpers.type('[class*="editor"] [contenteditable="true"], .ql-editor', content.body.substring(0, 2000));
-      } catch {}
+      log.info("bilibili: filling article body");
+      // For rich text editors, find the editor area by snapshot ref
+      const snap = helpers.snapshotInteractive();
+      const { ref } = helpers.findRefByTexts(snap, ["编辑器", "正文", "请输入正文", "editor"]);
+      if (ref) {
+        try { helpers.type(ref, content.body.substring(0, 20000)); } catch (e) { log.warn("bilibili: body type error:", e.message); }
+      } else {
+        log.warn("bilibili: could not find body editor ref");
+      }
     }
 
-    try { helpers.screenshot(); } catch {}
+    try { helpers.screenshot(); } catch (e) { log.warn("bilibili: screenshot failed:", e.message); }
 
-    try {
-      helpers.click('button:has-text("发布"), [class*="submit"]');
-      await helpers.sleep(5000);
-    } catch {
+    log.info("bilibili: clicking publish button");
+    if (!helpers.findAndClick(["发布", "提交", "投稿"])) {
       return { success: false, error: "无法找到发布按钮" };
     }
+    await helpers.sleep(5000);
 
-    return { success: true, note: "文章发布流程已执行" };
+    return { success: true, note: "B站文章发布流程已执行" };
   } catch (err) {
     return { success: false, error: `bilibili 图文发布失败: ${err.message}` };
   }

@@ -72,8 +72,11 @@ function detectPlatform() {
     { pattern: /xiaohongshu\.com/, key: "xiaohongshu", name: "小红书" },
     { pattern: /youtube\.com/, key: "youtube", name: "YouTube" },
     { pattern: /mp\.weixin\.qq\.com/, key: "weixin-mp", name: "公众号" },
+    { pattern: /channels\.weixin\.qq\.com/, key: "weixin-channels", name: "视频号" },
+    { pattern: /kuaishou\.com/, key: "kuaishou", name: "快手" },
     { pattern: /zhihu\.com/, key: "zhihu", name: "知乎" },
     { pattern: /weibo\.com/, key: "weibo", name: "微博" },
+    { pattern: /toutiao\.com/, key: "toutiao", name: "头条" },
   ];
 
   for (const p of platforms) {

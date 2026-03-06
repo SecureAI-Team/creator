@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Eye, ThumbsUp, RefreshCw, Loader2, Timer,
-  FileText, Users, BarChart3, TrendingUp, TrendingDown, Minus,
+  FileText, Users, BarChart3, TrendingUp, TrendingDown, Minus, Download,
+  Lightbulb, AlertTriangle, Info, X, Zap,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -77,6 +78,15 @@ interface MetricsResponse {
   history: { platform: string; accountId: string; date: string; followers: number; totalViews: number; totalLikes: number }[];
 }
 
+interface InsightItem {
+  id: string;
+  type: string;
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  platform: string | null;
+  message: string;
+  generatedAt: string;
+}
+
 export default function DataPage() {
   const [platform, setPlatform] = useState("all");
   const [timeRange, setTimeRange] = useState("30d");
@@ -87,9 +97,42 @@ export default function DataPage() {
   const [refreshResult, setRefreshResult] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState("off");
   const [viewMode, setViewMode] = useState<ViewMode>("platform");
+  const [insights, setInsights] = useState<InsightItem[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const days = TIME_RANGES.find((t) => t.key === timeRange)?.days ?? 30;
+
+  const fetchInsights = useCallback(async () => {
+    try {
+      const res = await fetch("/api/data/insights");
+      const json = await res.json();
+      setInsights(json.insights || []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const generateInsights = async () => {
+    setInsightsLoading(true);
+    try {
+      const res = await fetch("/api/data/insights", { method: "POST" });
+      const json = await res.json();
+      setInsights(json.insights || []);
+    } catch {
+      /* ignore */
+    }
+    setInsightsLoading(false);
+  };
+
+  const dismissInsight = async (id: string) => {
+    setInsights((prev) => prev.filter((i) => i.id !== id));
+    await fetch("/api/data/insights", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).catch(() => {});
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -97,7 +140,6 @@ export default function DataPage() {
       const params = new URLSearchParams({ days: String(days) });
       if (platform !== "all") params.set("platform", platform);
 
-      // Fetch both endpoints in parallel
       const [dataRes, metricsRes] = await Promise.all([
         fetch(`/api/data?${params.toString()}`),
         fetch(`/api/data/metrics?${params.toString()}`),
@@ -113,7 +155,14 @@ export default function DataPage() {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    fetchInsights();
+  }, [fetchData, fetchInsights]);
+
+  useEffect(() => {
+    if (viewMode === "content") {
+      fetchContentPerformance();
+    }
+  }, [viewMode, fetchContentPerformance]);
 
   // Auto-refresh timer
   useEffect(() => {
@@ -164,33 +213,29 @@ export default function DataPage() {
     { label: "作品总数", value: totalContentCount > 0 ? totalContentCount.toLocaleString() : "-", icon: BarChart3, iconBg: "bg-emerald-50", iconColor: "text-emerald-600" },
   ];
 
-  // Content performance data
-  const contentPerformance = (() => {
-    if (!data?.records?.length) return [];
-    const grouped = new Map<
-      string,
-      { title: string; contentType: string; platforms: string[]; views: number; likes: number; comments: number; shares: number }
-    >();
-    for (const r of data.records) {
-      const key = r.contentItem.title;
-      const existing = grouped.get(key) || {
-        title: r.contentItem.title,
-        contentType: r.contentItem.contentType,
-        platforms: [],
-        views: 0,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-      };
-      if (!existing.platforms.includes(r.platform)) existing.platforms.push(r.platform);
-      existing.views += r.views;
-      existing.likes += r.likes;
-      existing.comments += r.comments;
-      existing.shares += r.shares;
-      grouped.set(key, existing);
+  // Content performance data — cross-platform
+  interface ContentPerfItem {
+    id: string;
+    title: string;
+    contentType: string;
+    platforms: { platform: string; views: number; likes: number; comments: number; shares: number; platformUrl: string | null }[];
+    totals: { views: number; likes: number; comments: number; shares: number; engagementRate: number | null };
+    platformCount: number;
+  }
+  const [contentPerformance, setContentPerformance] = useState<ContentPerfItem[]>([]);
+  const [contentPerfLoading, setContentPerfLoading] = useState(false);
+
+  const fetchContentPerformance = useCallback(async () => {
+    setContentPerfLoading(true);
+    try {
+      const res = await fetch("/api/content/performance?pageSize=50");
+      const json = await res.json();
+      setContentPerformance(json.items || []);
+    } catch {
+      /* ignore */
     }
-    return Array.from(grouped.values()).sort((a, b) => b.views - a.views);
-  })();
+    setContentPerfLoading(false);
+  }, []);
 
   // Trend chart data from platform metrics history
   const trendChartData = (() => {
@@ -232,6 +277,18 @@ export default function DataPage() {
             ))}
           </select>
           {autoRefresh !== "off" && <Timer className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />}
+          <Button
+            variant="outline"
+            className="gap-2 rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50"
+            onClick={() => {
+              const params = new URLSearchParams({ days: String(days) });
+              if (platform !== "all") params.set("platform", platform);
+              window.open(`/api/data/export?${params.toString()}`, "_blank");
+            }}
+          >
+            <Download className="h-4 w-4" />
+            导出
+          </Button>
           <Button
             variant="outline"
             className="gap-2 rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50"
@@ -330,6 +387,77 @@ export default function DataPage() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Insights panel */}
+          <div className="rounded-2xl border border-gray-100 bg-white p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50">
+                  <Lightbulb className="h-4 w-4 text-amber-500" />
+                </div>
+                <h3 className="font-semibold text-gray-900">智能洞察</h3>
+                {insights.length > 0 && (
+                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                    {insights.length}
+                  </span>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-gray-500 hover:text-gray-700 gap-1"
+                onClick={generateInsights}
+                disabled={insightsLoading}
+              >
+                <Zap className={`h-3.5 w-3.5 ${insightsLoading ? "animate-spin" : ""}`} />
+                {insightsLoading ? "分析中..." : "重新分析"}
+              </Button>
+            </div>
+            {insights.length > 0 ? (
+              <div className="space-y-2">
+                {insights.map((insight) => (
+                  <div
+                    key={insight.id}
+                    className={`flex items-start gap-3 rounded-xl px-4 py-3 text-sm ${
+                      insight.severity === "CRITICAL"
+                        ? "bg-red-50 text-red-800 border border-red-100"
+                        : insight.severity === "WARNING"
+                        ? "bg-amber-50 text-amber-800 border border-amber-100"
+                        : "bg-blue-50 text-blue-800 border border-blue-100"
+                    }`}
+                  >
+                    <div className="flex-shrink-0 mt-0.5">
+                      {insight.severity === "CRITICAL" ? (
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                      ) : insight.severity === "WARNING" ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      ) : (
+                        <Info className="h-4 w-4 text-blue-500" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="leading-relaxed">{insight.message}</p>
+                      {insight.platform && (
+                        <span className="inline-block mt-1 text-xs opacity-60">
+                          {PLATFORMS.find((p) => p.key === insight.platform)?.label || insight.platform}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => dismissInsight(insight.id)}
+                      className="flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-4">
+                暂无洞察。点击「重新分析」生成内容和数据建议。
+              </p>
+            )}
           </div>
 
           {viewMode === "platform" && (
@@ -518,51 +646,74 @@ export default function DataPage() {
           )}
 
           {viewMode === "content" && (
-            <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100">
-                <h3 className="font-semibold text-gray-900">单内容数据表现</h3>
-                <p className="text-xs text-gray-400 mt-1">按总浏览量排序</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50/50">
-                      <th className="text-left py-3 px-6 font-medium text-gray-500">内容</th>
-                      <th className="text-left py-3 px-6 font-medium text-gray-500">发布平台</th>
-                      <th className="text-right py-3 px-6 font-medium text-gray-500">浏览量</th>
-                      <th className="text-right py-3 px-6 font-medium text-gray-500">点赞</th>
-                      <th className="text-right py-3 px-6 font-medium text-gray-500">评论</th>
-                      <th className="text-right py-3 px-6 font-medium text-gray-500">分享</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {contentPerformance.length > 0 ? (
-                      contentPerformance.map((row, i) => (
-                        <tr key={i} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
-                          <td className="py-3 px-6">
-                            <div className="flex items-center gap-2">
-                              <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                              <span className="font-medium text-gray-900 truncate max-w-[200px]">{row.title}</span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-6 text-gray-500 text-xs">
-                            {row.platforms.map((p) => PLATFORMS.find((pl) => pl.key === p)?.label || p).join(", ")}
-                          </td>
-                          <td className="py-3 px-6 text-right text-gray-600">{row.views.toLocaleString()}</td>
-                          <td className="py-3 px-6 text-right text-gray-600">{row.likes.toLocaleString()}</td>
-                          <td className="py-3 px-6 text-right text-gray-600">{row.comments.toLocaleString()}</td>
-                          <td className="py-3 px-6 text-right text-gray-600">{row.shares.toLocaleString()}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td className="py-12 text-center text-gray-400" colSpan={6}>
-                          暂无内容数据
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <h3 className="font-semibold text-gray-900">跨平台内容表现</h3>
+                  <p className="text-xs text-gray-400 mt-1">同一内容在不同平台的数据对比，按总浏览量排序</p>
+                </div>
+                {contentPerfLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+                  </div>
+                ) : contentPerformance.length > 0 ? (
+                  <div className="divide-y divide-gray-50">
+                    {contentPerformance.map((item) => (
+                      <div key={item.id} className="px-6 py-4 hover:bg-gray-50/50 transition-colors">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                            <span className="font-medium text-gray-900 truncate">{item.title}</span>
+                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md flex-shrink-0">
+                              {item.platformCount} 个平台
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-4 text-xs text-gray-500 flex-shrink-0 ml-4">
+                            <span>总浏览 <strong className="text-gray-800">{item.totals.views.toLocaleString()}</strong></span>
+                            <span>总点赞 <strong className="text-gray-800">{item.totals.likes.toLocaleString()}</strong></span>
+                            {item.totals.engagementRate !== null && (
+                              <span>互动率 <strong className="text-gray-800">{(item.totals.engagementRate * 100).toFixed(1)}%</strong></span>
+                            )}
+                          </div>
+                        </div>
+                        {item.platforms.length > 0 && (
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {item.platforms.map((p, pi) => {
+                              const pInfo = PLATFORMS.find((pl) => pl.key === p.platform);
+                              return (
+                                <div
+                                  key={pi}
+                                  className="rounded-xl bg-gray-50 border border-gray-100 p-3"
+                                >
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <div className={`h-6 w-6 rounded-lg bg-gradient-to-br ${pInfo?.color || "from-gray-400 to-gray-500"} flex items-center justify-center text-white text-xs font-bold`}>
+                                      {pInfo?.initial || "?"}
+                                    </div>
+                                    <span className="text-xs font-medium text-gray-700">{pInfo?.label || p.platform}</span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                                    <div><span className="text-gray-400">浏览</span> <span className="font-medium text-gray-700">{p.views.toLocaleString()}</span></div>
+                                    <div><span className="text-gray-400">点赞</span> <span className="font-medium text-gray-700">{p.likes.toLocaleString()}</span></div>
+                                    <div><span className="text-gray-400">评论</span> <span className="font-medium text-gray-700">{p.comments.toLocaleString()}</span></div>
+                                    <div><span className="text-gray-400">分享</span> <span className="font-medium text-gray-700">{p.shares.toLocaleString()}</span></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 mx-auto mb-4">
+                      <FileText className="h-7 w-7 text-gray-300" />
+                    </div>
+                    <p className="font-medium text-gray-600">暂无内容数据</p>
+                    <p className="text-sm text-gray-400 mt-1">发布内容后，跨平台表现数据将在这里展示</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
