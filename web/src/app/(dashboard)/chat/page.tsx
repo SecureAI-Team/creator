@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Send, Bot, User, Sparkles, Loader2 } from "lucide-react";
 
@@ -19,10 +20,23 @@ const suggestions = [
 ];
 
 export default function ChatPage() {
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Prefill from URL: /chat?action=create&topic=xxx&topicId=yyy (e.g. from trends "从该选题创作")
+  const didPrefill = useRef(false);
+  useEffect(() => {
+    if (didPrefill.current) return;
+    const topic = searchParams.get("topic");
+    const action = searchParams.get("action");
+    if (action === "create" && topic) {
+      didPrefill.current = true;
+      setInput(`请围绕「${decodeURIComponent(topic)}」创作一篇内容`);
+    }
+  }, [searchParams]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,10 +60,11 @@ export default function ChatPage() {
     setLoading(true);
 
     try {
+      const topicIdParam = searchParams.get("topicId") || undefined;
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: content }),
+        body: JSON.stringify({ message: content, topicId: topicIdParam }),
       });
       const data = await res.json();
       setMessages((prev) => [

@@ -73,3 +73,5 @@ profile=weixin-mp，导航到 `https://mp.weixin.qq.com`。
 - 未登录 → 中断，提示 /login weixin-mp（公众号登录需扫码，较易过期）
 - 页面加载超时 → 刷新重试一次
 - 数据页面改版 → 截图当前页面，通知创作者手动检查
+
+通过 Web 数据页「刷新数据」或 Bridge 命令 `/data refresh weixin-mp` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

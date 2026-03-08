@@ -81,3 +81,5 @@ profile=bilibili，导航到 B站创作中心，检查登录态。
 - 分区选择不当 → 使用「生活」等通用分区
 - 审核提示 → 截图通知
 - 元素定位失败 → 截图 + 通知创作者，可能是页面改版
+
+通过 Web 内容详情页发布流程或 Bridge 命令 `/publish` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

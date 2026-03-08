@@ -88,3 +88,5 @@ profile=zhihu，导航到 `https://www.zhihu.com/creator`。
 - 数据页面加载慢 → 等待 15 秒后重试
 - 反爬验证码 → 截图 + 通知创作者手动处理（通过 VNC）
 - 页面结构变化 → 截图 + 通知
+
+通过 Web 数据页「刷新数据」或 Bridge 命令 `/data refresh zhihu` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

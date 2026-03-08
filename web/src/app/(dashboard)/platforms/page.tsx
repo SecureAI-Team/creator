@@ -143,7 +143,9 @@ export default function PlatformsPage() {
       if (res.ok) {
         setPlatformAccounts((prev) => {
           const list = (prev[platformKey] || []).map((a) =>
-            a.accountId === accountId ? { ...a, ...updates } : a
+            a.accountId === accountId
+              ? { ...a, ...updates, group: updates.group ?? undefined }
+              : a
           );
           return { ...prev, [platformKey]: list };
         });

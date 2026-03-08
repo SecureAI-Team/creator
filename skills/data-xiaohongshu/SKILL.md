@@ -77,3 +77,5 @@ profile=xiaohongshu，导航到 `https://creator.xiaohongshu.com/statistics`。
 - 反爬验证码 → 截图 + 通知创作者手动处理（通过 VNC）
 - 页面改版 → 截图 + 通知
 - 请求被限制 → 等待 5 分钟后重试，仍失败则通知
+
+通过 Web 数据页「刷新数据」或 Bridge 命令 `/data refresh xiaohongshu` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

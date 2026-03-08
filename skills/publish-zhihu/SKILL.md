@@ -74,3 +74,5 @@ profile=zhihu，导航到知乎，检查登录态。
 - 内容审核 → 截图通知，知乎审核较严格
 - 频率限制 → 通知创作者稍后重试
 - 编辑器加载异常 → 刷新重试
+
+通过 Web 内容详情页发布流程或 Bridge 命令 `/publish` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

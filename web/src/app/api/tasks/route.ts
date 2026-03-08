@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
@@ -84,7 +85,7 @@ export const POST = auth(async function POST(req) {
       userId,
       taskType,
       platform: platform || null,
-      input: input || undefined,
+      input: (input ?? undefined) as Prisma.InputJsonValue | undefined,
       status: "pending",
     },
   });

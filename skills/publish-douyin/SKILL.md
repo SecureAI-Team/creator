@@ -71,3 +71,5 @@ profile=douyin，导航到抖音创作者平台，检查登录态。
 - 视频格式不支持 → 提示创作者转码
 - 内容审核 → 截图通知
 - 元素定位失败 → 截图 + 通知，可能是页面改版
+
+通过 Web 内容详情页发布流程或 Bridge 命令 `/publish` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

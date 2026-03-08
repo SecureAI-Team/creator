@@ -32,13 +32,12 @@
   "browser": {
     "enabled": true,
     "headless": false,
-    "defaultProfile": "bilibili",
+    "defaultProfile": "openclaw",
     "maxInstances": 4,
     "idleShutdownMinutes": 10,
-    "timeout": 30000,
-    "navigationTimeout": 60000,
     "screenshotDir": "workspace/content/screenshots",
     "profiles": {
+      "openclaw": { "cdpPort": 18799, "color": "#333333" },
       "bilibili": { "cdpPort": 18800, "color": "#00A1D6" },
       "xiaohongshu": { "cdpPort": 18801, "color": "#FE2C55" },
       "weixin-mp": { "cdpPort": 18802, "color": "#07C160" },

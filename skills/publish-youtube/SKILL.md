@@ -62,3 +62,5 @@ profile=youtube，导航到 YouTube Studio，检查登录态。
 ## 异常处理
 - 上传超时 → 定期通知进度
 - 版权检测 → 截图通知创作者
+
+通过 Web 内容详情页发布流程或 Bridge 命令 `/publish` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

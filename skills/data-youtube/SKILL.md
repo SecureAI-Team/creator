@@ -49,3 +49,5 @@ profile=youtube，导航到 YouTube Studio 数据分析页面 (`https://studio.y
 - 未登录 → 中断，提示 /login youtube
 - API 配额超限 → 切换到 Browser RPA + 通知创作者
 - 页面改版 → 截图 + 通知
+
+通过 Web 数据页「刷新数据」或 Bridge 命令 `/data refresh youtube` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

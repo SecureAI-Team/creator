@@ -79,3 +79,5 @@ profile=toutiao，导航到头条号后台，检查登录态。
 - 审核不通过 → 截图通知，可能需要修改内容
 - 视频转码失败 → 检查格式，提示转码
 - 频率限制 → 通知创作者稍后发布
+
+通过 Web 内容详情页发布流程或 Bridge 命令 `/publish` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

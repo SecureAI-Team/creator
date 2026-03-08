@@ -367,6 +367,7 @@ try { publishScripts.kuaishou = require("./kuaishou").publish; } catch {}
 try { publishScripts.zhihu = require("./zhihu").publish; } catch {}
 try { publishScripts.weibo = require("./weibo").publish; } catch {}
 try { publishScripts.toutiao = require("./toutiao").publish; } catch {}
+try { publishScripts.youtube = require("./youtube").publish; } catch {}
 
 /**
  * Publish content to a specific platform.
@@ -396,6 +397,7 @@ try { dataCollectors.zhihu = require("./zhihu-data").collect; } catch {}
 try { dataCollectors["weixin-channels"] = require("./weixin-channels-data").collect; } catch {}
 try { dataCollectors.weibo = require("./weibo-data").collect; } catch {}
 try { dataCollectors.toutiao = require("./toutiao-data").collect; } catch {}
+try { dataCollectors.youtube = require("./youtube-data").collect; } catch {}
 
 /**
  * Cookie markers for detecting login state per platform.

@@ -15,6 +15,7 @@ interface ContentItem {
   contentType: "TEXT" | "VIDEO" | "IMAGE" | "AUDIO";
   status: ContentStatus;
   platforms: string[];
+  topic?: { id: string; name: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -275,8 +276,9 @@ export default function ContentPage() {
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-gray-900 truncate">{item.title}</div>
                     <div className="text-xs text-gray-400 mt-0.5">
-                      {item.platforms.length > 0 ? item.platforms.join(", ") : "未指定平台"} &middot;{" "}
-                      {new Date(item.updatedAt).toLocaleDateString("zh-CN")}
+                      {item.platforms.length > 0 ? item.platforms.join(", ") : "未指定平台"}
+                      {item.topic?.name && <> &middot; 选题: {item.topic.name}</>}
+                      {" "}&middot;{" "}{new Date(item.updatedAt).toLocaleDateString("zh-CN")}
                     </div>
                   </div>
                   <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>

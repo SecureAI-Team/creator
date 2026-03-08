@@ -84,3 +84,5 @@ profile=kuaishou，导航到快手创作者平台，检查登录态。
 - 内容审核提示 → 截图通知
 - 同城流量设置 → 根据用户偏好选择
 - 元素定位失败 → 截图 + 通知，可能是页面改版
+
+通过 Web 内容详情页发布流程或 Bridge 命令 `/publish` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

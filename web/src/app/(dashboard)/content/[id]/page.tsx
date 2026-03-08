@@ -28,6 +28,7 @@ type PublishStatus = "PENDING" | "PUBLISHING" | "PUBLISHED" | "FAILED" | "SCHEDU
 interface PublishRecord {
   id: string;
   platform: string;
+  accountId?: string;
   status: PublishStatus;
   platformUrl?: string;
   publishedAt?: string;
@@ -40,6 +41,8 @@ interface PublishRecord {
   createdAt: string;
 }
 
+type PublishTarget = { platform: string; accountId: string };
+
 interface ContentItem {
   id: string;
   title: string;
@@ -50,6 +53,8 @@ interface ContentItem {
   coverUrl?: string;
   tags: string[];
   platforms: string[];
+  topicId?: string | null;
+  topic?: { id: string; name: string } | null;
   publishRecords: PublishRecord[];
   createdAt: string;
   updatedAt: string;
@@ -108,10 +113,12 @@ export default function ContentDetailPage() {
   const [body, setBody] = useState("");
   const [tags, setTags] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
+  const [topicId, setTopicId] = useState<string | null>(null);
+  const [topics, setTopics] = useState<{ id: string; name: string }[]>([]);
 
-  // Publish state
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-  const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
+  // Publish state: targets = platform + accountId (one platform can have multiple accounts)
+  const [connections, setConnections] = useState<{ platformKey: string; accountId: string; accountName: string | null; status: string }[]>([]);
+  const [selectedTargets, setSelectedTargets] = useState<PublishTarget[]>([]);
   const [publishMode, setPublishMode] = useState<"manual" | "auto">("manual");
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -135,6 +142,7 @@ export default function ContentDetailPage() {
         setBody(found.body || "");
         setTags(found.tags?.join(", ") || "");
         setMediaUrl(found.mediaUrl || "");
+        setTopicId(found.topicId ?? null);
       }
     } catch {
       // ignore
@@ -169,16 +177,14 @@ export default function ContentDetailPage() {
     }
   }, [contentId]);
 
-  // Fetch connected platforms and user publish mode
+  // Fetch platform connections (for multi-account publish) and user publish mode
   useEffect(() => {
-    async function loadPlatforms() {
+    async function loadConnections() {
       try {
-        const res = await fetch("/api/data?days=1");
+        const res = await fetch("/api/accounts");
         const data = await res.json();
-        const connected = (data.platforms || [])
-          .filter((p: { status: string }) => p.status === "CONNECTED")
-          .map((p: { platformKey: string }) => p.platformKey);
-        setConnectedPlatforms(connected);
+        const list = (data.accounts || []).filter((a: { status: string }) => a.status === "CONNECTED");
+        setConnections(list);
       } catch {
         // ignore
       }
@@ -195,8 +201,18 @@ export default function ContentDetailPage() {
         // ignore
       }
     }
-    loadPlatforms();
+    async function loadTopics() {
+      try {
+        const res = await fetch("/api/topics");
+        const data = await res.json();
+        setTopics((data.topics || []).map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })));
+      } catch {
+        // ignore
+      }
+    }
+    loadConnections();
     loadPublishMode();
+    loadTopics();
   }, []);
 
   useEffect(() => {
@@ -236,11 +252,19 @@ export default function ContentDetailPage() {
             .split(",")
             .map((t) => t.trim())
             .filter(Boolean),
+          topicId: topicId || null,
         }),
       });
       if (res.ok) {
         const updated = await res.json();
-        setItem({ ...item, ...updated, publishRecords: item.publishRecords });
+        setItem({
+          ...item,
+          ...updated,
+          topic: updated.topicId && topics.find((t) => t.id === updated.topicId)
+            ? { id: updated.topicId, name: topics.find((t) => t.id === updated.topicId)!.name }
+            : updated.topic ?? null,
+          publishRecords: item.publishRecords,
+        });
       }
     } catch {
       // ignore
@@ -248,15 +272,20 @@ export default function ContentDetailPage() {
     setSaving(false);
   };
 
-  const togglePlatform = (key: string) => {
-    setSelectedPlatforms((prev) =>
-      prev.includes(key) ? prev.filter((p) => p !== key) : [...prev, key]
-    );
+  const isTargetSelected = (platform: string, accountId: string) =>
+    selectedTargets.some((t) => t.platform === platform && t.accountId === accountId);
+
+  const toggleTarget = (platform: string, accountId: string) => {
+    setSelectedTargets((prev) => {
+      const has = prev.some((t) => t.platform === platform && t.accountId === accountId);
+      if (has) return prev.filter((t) => t.platform !== platform || t.accountId !== accountId);
+      return [...prev, { platform, accountId }];
+    });
   };
 
   // Trigger publish: if manual mode, show confirmation first; if auto, publish directly
   const handlePublishClick = () => {
-    if (!item || selectedPlatforms.length === 0) return;
+    if (!item || selectedTargets.length === 0) return;
     if (publishMode === "manual") {
       setShowConfirm(true);
     } else {
@@ -264,14 +293,14 @@ export default function ContentDetailPage() {
     }
   };
 
-  const doPublish = async (platforms?: string[]) => {
-    const targetPlatforms = platforms ?? selectedPlatforms;
-    if (!item || targetPlatforms.length === 0) return;
+  const doPublish = async (targets?: PublishTarget[]) => {
+    const toPublish = targets ?? selectedTargets;
+    if (!item || toPublish.length === 0) return;
     setShowConfirm(false);
     setPublishing(true);
     try {
-      const body: { platforms: string[]; confirmed: boolean; scheduledAt?: string } = {
-        platforms: targetPlatforms,
+      const body: { targets: PublishTarget[]; confirmed: boolean; scheduledAt?: string } = {
+        targets: toPublish,
         confirmed: true,
       };
       if (scheduledAt) {
@@ -286,9 +315,8 @@ export default function ContentDetailPage() {
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        // Refresh to get updated publish records
         setTimeout(fetchItem, 1000);
-        if (!platforms) setSelectedPlatforms([]);
+        if (!targets) setSelectedTargets([]);
       }
     } catch {
       // ignore
@@ -296,10 +324,10 @@ export default function ContentDetailPage() {
     setPublishing(false);
   };
 
-  const handleRetryPublish = async (platform: string) => {
+  const handleRetryPublish = async (record: PublishRecord) => {
     if (!item) return;
-    setRetryingPlatform(platform);
-    await doPublish([platform]);
+    setRetryingPlatform(`${record.platform}:${record.accountId ?? "default"}`);
+    await doPublish([{ platform: record.platform, accountId: record.accountId ?? "default" }]);
     setRetryingPlatform(null);
   };
 
@@ -369,6 +397,9 @@ export default function ContentDetailPage() {
           </div>
           <span className="text-sm text-gray-500">{tc.label}</span>
         </div>
+        {item.topic && (
+          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">选题: {item.topic.name}</span>
+        )}
         <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
           {sc.label}
@@ -395,6 +426,19 @@ export default function ContentDetailPage() {
             placeholder="内容正文..."
           />
         </div>
+        <div>
+          <label className="text-sm font-medium text-gray-700 mb-1.5 block">选题</label>
+          <select
+            value={topicId ?? ""}
+            onChange={(e) => setTopicId(e.target.value || null)}
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          >
+            <option value="">无</option>
+            {topics.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-sm font-medium text-gray-700 mb-1.5 block">媒体 URL</label>
@@ -410,12 +454,12 @@ export default function ContentDetailPage() {
         </div>
       </div>
 
-      {/* Publish panel */}
+      {/* Publish panel: platform + account (multi-account per platform) */}
       <div className="rounded-2xl border border-gray-100 bg-white p-6 space-y-4">
         <h3 className="font-semibold text-gray-900">发布到平台</h3>
-        <p className="text-sm text-gray-500">选择要发布的平台（仅显示已连接的平台）</p>
+        <p className="text-sm text-gray-500">选择要发布的平台与账号（仅显示已连接的）</p>
 
-        {connectedPlatforms.length === 0 ? (
+        {connections.length === 0 ? (
           <div className="text-center py-8">
             <AlertCircle className="h-8 w-8 text-gray-300 mx-auto mb-2" />
             <p className="text-sm text-gray-500">暂无已连接的平台</p>
@@ -426,15 +470,16 @@ export default function ContentDetailPage() {
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-              {PLATFORMS.filter((p) => connectedPlatforms.includes(p.key)).map((p) => {
-                const selected = selectedPlatforms.includes(p.key);
+              {connections.map((conn) => {
+                const p = PLATFORMS.find((pl) => pl.key === conn.platformKey);
+                const selected = isTargetSelected(conn.platformKey, conn.accountId);
                 const alreadyPublished = item.publishRecords?.some(
-                  (r) => r.platform === p.key && r.status === "PUBLISHED"
+                  (r) => r.platform === conn.platformKey && (r.accountId ?? "default") === conn.accountId && r.status === "PUBLISHED"
                 );
                 return (
                   <button
-                    key={p.key}
-                    onClick={() => togglePlatform(p.key)}
+                    key={`${conn.platformKey}:${conn.accountId}`}
+                    onClick={() => toggleTarget(conn.platformKey, conn.accountId)}
                     disabled={alreadyPublished}
                     className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-all ${
                       alreadyPublished
@@ -444,11 +489,16 @@ export default function ContentDetailPage() {
                         : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
                     }`}
                   >
-                    <div className={`h-6 w-6 rounded-md bg-gradient-to-br ${p.color} flex items-center justify-center text-white text-xs font-bold`}>
-                      {p.initial}
+                    <div className={`h-6 w-6 rounded-md bg-gradient-to-br ${p?.color ?? "from-gray-400 to-gray-500"} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
+                      {p?.initial ?? "?"}
                     </div>
-                    <span className="truncate">{p.name}</span>
-                    {alreadyPublished && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-emerald-500" />}
+                    <span className="truncate min-w-0">
+                      {p?.name ?? conn.platformKey}
+                      {conn.accountId !== "default" && (
+                        <span className="text-gray-500 block text-[10px]">{conn.accountName || conn.accountId}</span>
+                      )}
+                    </span>
+                    {alreadyPublished && <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-emerald-500 shrink-0" />}
                   </button>
                 );
               })}
@@ -468,9 +518,9 @@ export default function ContentDetailPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">
-                  {selectedPlatforms.length > 0
-                    ? `已选择 ${selectedPlatforms.length} 个平台`
-                    : "请选择要发布的平台"}
+                  {selectedTargets.length > 0
+                    ? `已选择 ${selectedTargets.length} 个目标`
+                    : "请选择要发布的平台/账号"}
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400">
@@ -480,14 +530,14 @@ export default function ContentDetailPage() {
                     size="sm"
                     className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
                     onClick={handlePublishClick}
-                    disabled={publishing || selectedPlatforms.length === 0}
+                    disabled={publishing || selectedTargets.length === 0}
                   >
                     {publishing ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
                     ) : (
                       <Send className="h-4 w-4 mr-1.5" />
                     )}
-                    {publishMode === "manual" ? "审核并发布" : "发布到选中平台"}
+                    {publishMode === "manual" ? "审核并发布" : "发布到选中目标"}
                   </Button>
                 </div>
               </div>
@@ -551,13 +601,17 @@ export default function ContentDetailPage() {
               const psi = publishStatusIcon[record.status];
               const StatusIcon = psi.icon;
               const platInfo = PLATFORMS.find((p) => p.key === record.platform);
+              const acctId = record.accountId ?? "default";
+              const retryKey = `${record.platform}:${acctId}`;
+              const conn = connections.find((c) => c.platformKey === record.platform && c.accountId === acctId);
+              const accountLabel = acctId === "default" ? "" : ` · ${conn?.accountName ?? acctId}`;
               return (
                 <div key={record.id} className="flex items-center gap-4 px-6 py-3">
-                  <div className={`h-8 w-8 rounded-lg bg-gradient-to-br ${platInfo?.color || "from-gray-400 to-gray-500"} flex items-center justify-center text-white text-xs font-bold`}>
-                    {platInfo?.initial || "?"}
+                  <div className={`h-8 w-8 rounded-lg bg-gradient-to-br ${platInfo?.color ?? "from-gray-400 to-gray-500"} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
+                    {platInfo?.initial ?? "?"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900">{platInfo?.name || record.platform}</div>
+                    <div className="text-sm font-medium text-gray-900">{platInfo?.name ?? record.platform}{accountLabel}</div>
                     <div className="text-xs text-gray-400">
                       {record.publishedAt ? new Date(record.publishedAt).toLocaleString("zh-CN") : new Date(record.createdAt).toLocaleString("zh-CN")}
                     </div>
@@ -576,16 +630,16 @@ export default function ContentDetailPage() {
                       </span>
                     )}
                   </div>
-                  <StatusIcon className={`h-4 w-4 ${psi.color} ${record.status === "PUBLISHING" ? "animate-spin" : ""}`} />
+                  <StatusIcon className={`h-4 w-4 shrink-0 ${psi.color} ${record.status === "PUBLISHING" ? "animate-spin" : ""}`} />
                   {record.status === "FAILED" && (
                     <Button
                       variant="outline"
                       size="sm"
-                      className="rounded-lg h-7 text-xs border-red-200 text-red-600 hover:bg-red-50"
-                      onClick={() => handleRetryPublish(record.platform)}
+                      className="rounded-lg h-7 text-xs border-red-200 text-red-600 hover:bg-red-50 shrink-0"
+                      onClick={() => handleRetryPublish(record)}
                       disabled={!!retryingPlatform}
                     >
-                      {retryingPlatform === record.platform ? (
+                      {retryingPlatform === retryKey ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
                         <>
@@ -629,19 +683,21 @@ export default function ContentDetailPage() {
                 </div>
               )}
               <div>
-                <span className="text-xs font-medium text-gray-400">发布平台</span>
+                <span className="text-xs font-medium text-gray-400">发布目标</span>
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {selectedPlatforms.map((key) => {
-                    const p = PLATFORMS.find((pl) => pl.key === key);
+                  {selectedTargets.map((t) => {
+                    const p = PLATFORMS.find((pl) => pl.key === t.platform);
+                    const conn = connections.find((c) => c.platformKey === t.platform && c.accountId === t.accountId);
+                    const label = conn?.accountId === "default" ? (p?.name ?? t.platform) : `${p?.name ?? t.platform} · ${conn?.accountName ?? t.accountId}`;
                     return (
                       <span
-                        key={key}
+                        key={`${t.platform}:${t.accountId}`}
                         className="inline-flex items-center gap-1 text-xs font-medium bg-gray-100 text-gray-700 px-2 py-1 rounded-lg"
                       >
-                        <span className={`h-4 w-4 rounded bg-gradient-to-br ${p?.color || "from-gray-400 to-gray-500"} flex items-center justify-center text-white text-[9px] font-bold`}>
-                          {p?.initial || "?"}
+                        <span className={`h-4 w-4 rounded bg-gradient-to-br ${p?.color ?? "from-gray-400 to-gray-500"} flex items-center justify-center text-white text-[9px] font-bold`}>
+                          {p?.initial ?? "?"}
                         </span>
-                        {p?.name || key}
+                        {label}
                       </span>
                     );
                   })}
@@ -666,7 +722,7 @@ export default function ContentDetailPage() {
               <Button
                 size="sm"
                 className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                onClick={doPublish}
+                onClick={() => void doPublish()}
                 disabled={publishing}
               >
                 {publishing ? (

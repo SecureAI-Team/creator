@@ -953,16 +953,18 @@ ipcMain.handle("connect-bridge", async (_event, token) => {
         return await replyToComment(payload.platform, payload.externalId, payload.replyBody, ctx, payload.accountId || "default");
       }
 
-      const targetPlatform = commandParts || "all";
+      const parts = (commandParts || "").trim().split(/\s+/).filter(Boolean);
+      const targetPlatform = parts[0] || "all";
+      const accountId = parts[1] || "default";
       if (targetPlatform === "all") {
         const platforms = ["bilibili", "douyin", "xiaohongshu", "weixin-mp", "weixin-channels", "kuaishou", "zhihu", "weibo", "toutiao"];
         const results = {};
         for (const p of platforms) {
-          try { results[p] = await collectComments(p, ctx); } catch (e) { results[p] = { success: false, error: e.message }; }
+          try { results[p] = await collectComments(p, ctx, accountId); } catch (e) { results[p] = { success: false, error: e.message }; }
         }
         return { success: true, results };
       }
-      return await collectComments(targetPlatform, ctx);
+      return await collectComments(targetPlatform, ctx, accountId);
     },
     onTrending: async (platforms) => {
       const { collectTrending } = require("./platform-scripts");

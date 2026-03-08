@@ -12,6 +12,7 @@
 //   3. Every browser `profile` referenced in tools.yaml / platforms.yaml
 //      exists in openclaw.json browser.profiles
 //   4. Every skill directory contains a SKILL.md file
+//   5. openclaw.json browser.profiles includes "openclaw" (desktop bridge default)
 // =============================================================================
 
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
@@ -118,7 +119,14 @@ for (const platform of platforms) {
   }
 }
 
-// Check 3: Every browser profile reference exists in openclaw.json
+// Check 3a: openclaw profile must exist (used by desktop bridge for default accounts)
+if (!browserProfiles.includes("openclaw")) {
+  errors.push(
+    `[openclaw.json] browser.profiles must include "openclaw" (used by desktop platform-scripts for default accountId)`
+  );
+}
+
+// Check 3b: Every browser profile reference exists in openclaw.json
 for (const tool of tools) {
   if (tool.profile && !browserProfiles.includes(tool.profile)) {
     errors.push(
@@ -142,6 +150,13 @@ for (const dir of skillDirs) {
       `[skills/] Directory "skills/${dir}/" is missing SKILL.md`
     );
   }
+}
+
+// Check 5: openclaw profile exists (desktop/bridge use it for default account)
+if (!browserProfiles.includes("openclaw")) {
+  errors.push(
+    `[openclaw.json] browser.profiles must include "openclaw" (used by desktop bridge for default account)`
+  );
 }
 
 // ---------------------------------------------------------------------------

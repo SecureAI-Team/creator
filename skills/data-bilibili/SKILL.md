@@ -45,3 +45,5 @@ profile=bilibili，导航到 `https://member.bilibili.com/platform/data/overview
 
 ### 5. 返回数据摘要
 供日报或 `/data` 指令使用。
+
+通过 Web 数据页「刷新数据」或 Bridge 命令 `/data refresh bilibili` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

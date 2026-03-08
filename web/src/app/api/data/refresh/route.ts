@@ -23,6 +23,7 @@ const ALL_COLLECTOR_PLATFORMS = [
   "zhihu",
   "weibo",
   "toutiao",
+  "youtube",
 ];
 
 /**

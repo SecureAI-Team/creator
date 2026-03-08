@@ -153,6 +153,30 @@ export default function DataPage() {
     setLoading(false);
   }, [platform, days]);
 
+  // Content performance data — cross-platform (declared early so fetchContentPerformance can be used in effects)
+  interface ContentPerfItem {
+    id: string;
+    title: string;
+    contentType: string;
+    platforms: { platform: string; views: number; likes: number; comments: number; shares: number; platformUrl: string | null }[];
+    totals: { views: number; likes: number; comments: number; shares: number; engagementRate: number | null };
+    platformCount: number;
+  }
+  const [contentPerformance, setContentPerformance] = useState<ContentPerfItem[]>([]);
+  const [contentPerfLoading, setContentPerfLoading] = useState(false);
+
+  const fetchContentPerformance = useCallback(async () => {
+    setContentPerfLoading(true);
+    try {
+      const res = await fetch("/api/content/performance?pageSize=50");
+      const json = await res.json();
+      setContentPerformance(json.items || []);
+    } catch {
+      /* ignore */
+    }
+    setContentPerfLoading(false);
+  }, []);
+
   useEffect(() => {
     fetchData();
     fetchInsights();
@@ -212,30 +236,6 @@ export default function DataPage() {
     { label: "总点赞数", value: totals.likes > 0 ? totals.likes.toLocaleString() : platformMetrics.reduce((s, m) => s + m.totalLikes, 0).toLocaleString(), icon: ThumbsUp, iconBg: "bg-red-50", iconColor: "text-red-500" },
     { label: "作品总数", value: totalContentCount > 0 ? totalContentCount.toLocaleString() : "-", icon: BarChart3, iconBg: "bg-emerald-50", iconColor: "text-emerald-600" },
   ];
-
-  // Content performance data — cross-platform
-  interface ContentPerfItem {
-    id: string;
-    title: string;
-    contentType: string;
-    platforms: { platform: string; views: number; likes: number; comments: number; shares: number; platformUrl: string | null }[];
-    totals: { views: number; likes: number; comments: number; shares: number; engagementRate: number | null };
-    platformCount: number;
-  }
-  const [contentPerformance, setContentPerformance] = useState<ContentPerfItem[]>([]);
-  const [contentPerfLoading, setContentPerfLoading] = useState(false);
-
-  const fetchContentPerformance = useCallback(async () => {
-    setContentPerfLoading(true);
-    try {
-      const res = await fetch("/api/content/performance?pageSize=50");
-      const json = await res.json();
-      setContentPerformance(json.items || []);
-    } catch {
-      /* ignore */
-    }
-    setContentPerfLoading(false);
-  }, []);
 
   // Trend chart data from platform metrics history
   const trendChartData = (() => {

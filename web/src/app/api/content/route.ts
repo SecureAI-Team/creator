@@ -13,6 +13,7 @@ const createContentSchema = z.object({
   coverUrl: z.string().url().optional(),
   tags: z.array(z.string()).optional(),
   platforms: z.array(z.string()).optional(),
+  topicId: z.string().nullable().optional(),
 });
 
 const updateContentSchema = createContentSchema.partial().extend({
@@ -20,6 +21,7 @@ const updateContentSchema = createContentSchema.partial().extend({
   status: z
     .enum(["DRAFT", "ADAPTED", "REVIEWING", "PUBLISHING", "PUBLISHED", "FAILED"])
     .optional(),
+  topicId: z.string().nullable().optional(),
 });
 
 /**
@@ -53,7 +55,10 @@ export const GET = auth(async function GET(req) {
   const [items, total] = await Promise.all([
     prisma.contentItem.findMany({
       where,
-      include: { publishRecords: true },
+      include: {
+        publishRecords: true,
+        topic: { select: { id: true, name: true } },
+      },
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -108,6 +113,7 @@ export const POST = auth(async function POST(req) {
       coverUrl: parsed.data.coverUrl,
       tags: parsed.data.tags || [],
       platforms: parsed.data.platforms || [],
+      ...(parsed.data.topicId !== undefined && { topicId: parsed.data.topicId || null }),
     },
   });
 

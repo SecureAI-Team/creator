@@ -80,3 +80,5 @@ profile=douyin，导航到 `https://creator.douyin.com/creator-micro/home`。
 - 数据页面加载慢 → 等待 15 秒后重试
 - 页面结构变化 → 截图 + 通知创作者
 - 反爬验证码 → 截图 + 通知创作者（通过 VNC）
+
+通过 Web 数据页「刷新数据」或 Bridge 命令 `/data refresh douyin` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

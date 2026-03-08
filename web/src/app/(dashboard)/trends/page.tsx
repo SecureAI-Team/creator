@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, RefreshCw, Loader2, Flame, PenLine } from "lucide-react";
+import { TrendingUp, RefreshCw, Loader2, Flame, PenLine, BookmarkPlus } from "lucide-react";
 
 const PLATFORMS = [
   { key: "all", label: "全部" },
@@ -39,6 +39,9 @@ export default function TrendsPage() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  /** After "加入选题库", trend id -> topic id for "从该选题创作" */
+  const [addedTopicIds, setAddedTopicIds] = useState<Record<string, string>>({});
+  const [addingTopicTrendId, setAddingTopicTrendId] = useState<string | null>(null);
 
   const fetchTrends = useCallback(async () => {
     setLoading(true);
@@ -73,8 +76,28 @@ export default function TrendsPage() {
     setRefreshing(false);
   };
 
-  const handleCreateFromTrend = (title: string) => {
-    router.push(`/chat?action=create&topic=${encodeURIComponent(title)}`);
+  const handleCreateFromTrend = (title: string, topicId?: string) => {
+    const params = new URLSearchParams({ action: "create", topic: title });
+    if (topicId) params.set("topicId", topicId);
+    router.push(`/chat?${params.toString()}`);
+  };
+
+  const handleAddToTopicLibrary = async (trend: TrendItem) => {
+    setAddingTopicTrendId(trend.id);
+    try {
+      const res = await fetch("/api/topics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trend.title }),
+      });
+      if (res.ok) {
+        const topic = await res.json();
+        setAddedTopicIds((prev) => ({ ...prev, [trend.id]: topic.id }));
+      }
+    } catch {
+      /* ignore */
+    }
+    setAddingTopicTrendId(null);
   };
 
   const filteredTrends =
@@ -172,15 +195,45 @@ export default function TrendsPage() {
                     </span>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleCreateFromTrend(trend.title)}
-                  className="gap-1.5 shrink-0 rounded-xl"
-                >
-                  <PenLine className="h-3.5 w-3.5" />
-                  以此创作
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {addedTopicIds[trend.id] ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleCreateFromTrend(trend.title, addedTopicIds[trend.id])}
+                      className="gap-1.5 rounded-xl"
+                    >
+                      <PenLine className="h-3.5 w-3.5" />
+                      从该选题创作
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCreateFromTrend(trend.title)}
+                        className="gap-1.5 rounded-xl"
+                      >
+                        <PenLine className="h-3.5 w-3.5" />
+                        以此创作
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleAddToTopicLibrary(trend)}
+                        disabled={addingTopicTrendId === trend.id}
+                        className="gap-1.5 rounded-xl"
+                      >
+                        {addingTopicTrendId === trend.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <BookmarkPlus className="h-3.5 w-3.5" />
+                        )}
+                        加入选题库
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             );
           })}

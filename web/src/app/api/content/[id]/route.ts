@@ -26,6 +26,7 @@ export async function GET(
           orderBy: { createdAt: "desc" },
         },
         adaptations: true,
+        topic: { select: { id: true, name: true } },
       },
     });
 

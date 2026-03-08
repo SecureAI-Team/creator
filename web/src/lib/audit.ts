@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 export type AuditAction =
@@ -31,7 +32,7 @@ export function audit(opts: AuditOptions): void {
         userId: opts.userId,
         action: opts.action,
         target: opts.target ?? null,
-        metadata: opts.metadata ?? undefined,
+        metadata: (opts.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
         ip: opts.ip ?? null,
       },
     })

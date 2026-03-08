@@ -101,3 +101,5 @@ metadata: {"openclaw":{"requires":{"config":["browser.enabled"]}}}
 - **编辑器加载失败** → 刷新重试一次
 - **群发失败** → 截图错误，检查是否超过每日群发次数限制
 - **内容审核不通过** → 截图提示信息，通知创作者修改
+
+通过 Web 内容详情页发布流程或 Bridge 命令 `/publish` 可由桌面端直接执行，无需经过 Agent。详见 [openclaw-capability-mapping.md](../../docs/openclaw-capability-mapping.md)。

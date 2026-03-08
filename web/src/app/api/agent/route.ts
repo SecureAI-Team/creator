@@ -17,12 +17,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
 
-    const { message } = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const message = body.message;
+    const topicId = typeof body.topicId === "string" && body.topicId ? body.topicId : undefined;
     if (!message || typeof message !== "string") {
       return NextResponse.json({ error: "请提供消息内容" }, { status: 400 });
     }
 
-    const reply = await sendMessage(session.user.id, message);
+    // When user came from "从该选题创作", inject topicId so the agent/tools can associate new content with this topic
+    const messageToSend = topicId
+      ? `${message}\n\n（系统上下文：当前选题ID=${topicId}，若创建内容请关联此选题）`
+      : message;
+
+    const reply = await sendMessage(session.user.id, messageToSend);
 
     return NextResponse.json({ reply });
   } catch (err) {

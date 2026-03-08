@@ -37,6 +37,16 @@
 | 评论管理 | ✅ | GET/POST/PATCH/DELETE `/api/comments`，规则 CRUD，**评论刷新** 已接 bridge 并落库 |
 | 实体映射模型 | ✅ | `Topic`、`ContentVariant`、`PlatformPost`、`AccountProfile` 已在 schema 中 |
 
+### OpenClaw 生态组件
+
+| 组件 | 状态 | 说明 |
+|------|------|------|
+| **ClawHub** | 探索中 | 官方技能目录，可搜索安装社区 skills（browser automation、web scraping 等），见 [openclaw-ecosystem.md](openclaw-ecosystem.md) |
+| **Lobster** | Phase 2 | 确定性工作流引擎，将固定流程（日报、多平台发布）从 Agent 编排迁移为 Lobster 流水线，提升可靠性 |
+| **OpenProse** | 可选（当前 disabled） | 多 Agent 工作流格式，`/prose run` 运行 .prose 文件；openclaw.json 中 `plugins.open-prose.enabled: false` |
+
+能力与 Bridge 命令映射详见 [openclaw-capability-mapping.md](openclaw-capability-mapping.md)。
+
 ---
 
 ## 三、可选 / 后续增强

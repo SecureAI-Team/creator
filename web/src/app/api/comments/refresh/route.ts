@@ -19,7 +19,7 @@ interface PlatformCommentResult {
 /**
  * POST /api/comments/refresh
  * Trigger comment collection via the desktop bridge, then persist to Comment model.
- * Body: { platform?: string } — optional; if omitted, collects from all platforms.
+ * Body: { platform?: string, accountId?: string } — optional; if platform omitted, collects from all platforms (default account only).
  */
 export const POST = auth(async function POST(req) {
   if (!req.auth?.user?.id) {
@@ -27,15 +27,19 @@ export const POST = auth(async function POST(req) {
   }
 
   const userId = req.auth.user.id;
-  let body: { platform?: string } = {};
+  let body: { platform?: string; accountId?: string } = {};
   try {
     body = await req.json().catch(() => ({}));
   } catch {
     // no body
   }
 
-  const platformArg = body.platform ? ` ${body.platform}` : " ";
-  const command = `/comments${platformArg}`.trimEnd();
+  const accountId = body.accountId || "default";
+  let command = "/comments";
+  if (body.platform) {
+    command += ` ${body.platform}`;
+    if (accountId !== "default") command += ` ${accountId}`;
+  }
 
   try {
     const result = await sendViaBridge(userId, command, 120_000);
@@ -68,7 +72,7 @@ export const POST = auth(async function POST(req) {
         toCreate.push({
           userId,
           platform,
-          accountId: "default",
+          accountId,
           author: c.author || "未知",
           body: (c.body || "").slice(0, 8000),
           commentedAt: new Date(),
@@ -95,9 +99,11 @@ export const POST = auth(async function POST(req) {
     }
 
     if (platformsRefreshed.length > 0) {
-      await prisma.comment.deleteMany({
-        where: { userId, platform: { in: platformsRefreshed } },
-      });
+      const deleteWhere =
+        body.platform
+          ? { userId, platform: body.platform, accountId }
+          : { userId, platform: { in: platformsRefreshed }, accountId: "default" };
+      await prisma.comment.deleteMany({ where: deleteWhere });
     }
     if (toCreate.length > 0) {
       await prisma.comment.createMany({

@@ -19,6 +19,7 @@ import {
   TrendingUp,
   Users,
   ListChecks,
+  Bookmark,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
@@ -31,6 +32,7 @@ const navItems = [
   { href: "/data", label: "数据分析", icon: BarChart3 },
   { href: "/comments", label: "评论管理", icon: MessageCircle },
   { href: "/trends", label: "热点追踪", icon: TrendingUp },
+  { href: "/topics", label: "选题库", icon: Bookmark },
   { href: "/tasks", label: "任务中心", icon: ListChecks },
   { href: "/tools", label: "AI 工具", icon: Wrench },
   { href: "/chat", label: "AI 对话", icon: MessageSquare },
